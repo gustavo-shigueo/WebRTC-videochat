@@ -1,7 +1,9 @@
-const httpServer = require('http').createServer()
+const httpServer = require('http').createServer((req, res) => {
+	res.writeHead(200, { 'Access-Control-Allow-Origin': '*' })
+})
 const io = require('socket.io')(httpServer, {
 	cors: {
-		origin: '*',
+		origin: `${process.env.GITPOD_WORKSPACE_URL.replace('//', '//5500-')}`,
 		methods: ['GET', 'POST'],
 	},
 })
@@ -49,6 +51,12 @@ io.on('connection', socket => {
 		socket.broadcast
 			.to(callId)
 			.emit('receive-remote-description-answer', answerDescription)
+	})
+
+	socket.on('send-candidate', (candidate, callId) => {
+		socket.broadcast
+			.to(callId)
+			.emit('receive-candidate', candidate)
 	})
 
 	socket.onAny((event, ...args) => console.log({ event, args }))
