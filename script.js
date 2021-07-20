@@ -8,7 +8,8 @@ const servers = {
 
 // Global State
 const peer = new RTCPeerConnection(servers)
-const socket = io('ws://localhost:3001')
+const socket = io('wss://3001-chocolate-fox-weyzytiv.ws-us10.gitpod.io')
+// const mediaDevices = await navigator.mediaDevices.enumerateDevices()
 let localUserStream = new MediaStream()
 let localDisplayStream = new MediaStream()
 let remoteUserStream = new MediaStream()
@@ -45,18 +46,59 @@ localUserVideo.muted = true
 localDisplayVideo.muted = true
 remoteVideoGroup.style.display = 'none'
 
+peer.addEventListener('track', e => {
+	// e.streams[0].getTracks().forEach(track => {
+	// remoteUserStream.addTrack(track)
+	// })
+
+	console.group('Track event')
+	console.log('New track: ', e.track)
+	console.log('New receiver: ', e.receiver)
+	console.log('New transceiver: ', e.transceiver)
+	// const tracks = peer.getReceivers().map(r => r.track)
+	// const stream = new MediaStream(tracks)
+	// remoteUserVideo.srcObject = stream
+	console.groupEnd()
+
+	// const tracks = e.streams[0].getTracks()
+	// tracks.forEach(console.log)
+	// console.log('--------------------------------------')
+	// remoteUserVideo.srcObject = e.streams[0]
+	remoteVideoGroup.style = ''
+	remoteUserVideo.srcObject = peer.getRemoteStreams()[0]
+})
+
+localUserStream.addEventListener('addtrack', e => {
+	peer.addTrack(e.track, localUserStream)
+})
+
+localUserStream.addEventListener('removetrack', e => {
+	const { id } = e.track.id
+	const [sender] = peer.getSenders().filter(s => {
+		s.track.id === id
+	})
+	peer.removeTrack(sender)
+})
+
 // Update the MediaStream object that contains the local user's
 // microphone and webcam
 const updateLocalUserStream = async ({ video, audio }) => {
-	peer.getSenders().forEach(sender => peer.removeTrack(sender))
+	// peer.getSenders().forEach(sender => peer.removeTrack(sender))
 	localUserVideo.parentElement.style.display = video ? 'block' : 'none'
 
 	if (!video && !audio) return (localUserVideo.srcObject = null)
-	localUserStream = await navigator.mediaDevices.getUserMedia({ audio, video })
+	localUserStream = await navigator.mediaDevices.getUserMedia({
+		audio: true,
+		video: true,
+	})
+	const [videoTrack] = localUserStream.getVideoTracks()
+	const [audioTrack] = localUserStream.getAudioTracks()
+
+	videoTrack.enabled = video
+	audioTrack.enabled = audio
 
 	localUserVideo.srcObject = localUserStream
 	localUserStream.getTracks().forEach(track => {
-		track.label = `user_${track.kind}`
 		peer.addTrack(track, localUserStream)
 		peer.addTransceiver(track)
 	})
@@ -65,7 +107,12 @@ const updateLocalUserStream = async ({ video, audio }) => {
 // Update the MediaStream object that contains the local user's
 // screen share
 const updateLocalDisplayStream = async ({ sharing }) => {
-	peer.getSenders().forEach(peer.removeTrack)
+	peer
+		.getSenders()
+		.filter(({ track: { label } }) => {
+			label && (label === 'System Audio' || label.startsWith('screen'))
+		})
+		.forEach(sender => peer.removeTrack(sender))
 	localDisplayVideo.parentElement.style.display = sharing ? 'block' : 'none'
 	if (!sharing) return (localDisplayVideo.srcObject = null)
 
@@ -76,8 +123,7 @@ const updateLocalDisplayStream = async ({ sharing }) => {
 
 	localDisplayVideo.srcObject = localDisplayStream
 	localDisplayStream.getTracks().forEach(track => {
-		track.label = `display_${track.kind}`
-		peer.addTrack(track, localUserStream)
+		peer.addTrack(track, localDisplayStream)
 	})
 }
 
@@ -102,21 +148,10 @@ const toggleCameraOrMic = async (e, device) => {
 			? localUserStream.getAudioTracks()
 			: localUserStream.getVideoTracks()
 
-	if (device === 'audio') return (track.enabled = !track.enabled)
+	track.enabled = !track.enabled
 
-	if (track) {
-		track.stop()
-		localUserStream.removeTrack(track)
-		localUserVideo.parentElement.style.display = 'none'
-		return
-	}
-
-	const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-	const [videoTrack] = stream.getVideoTracks()
-	videoTrack.label = 'user_video'
-	localUserStream.addTrack(videoTrack)
-	peer.addTrack(videoTrack, localUserStream)
-	localUserVideo.parentElement.style.display = 'block'
+	if (device === 'audio') return
+	localUserVideo.parentElement.style.display = track.enabled ? 'block' : 'none'
 }
 
 // Toggles the local user's screen sharing
@@ -197,8 +232,9 @@ const createCall = async () => {
 
 	socket.emit('join', callId)
 
-	peer.onicecandidate = () => {
+	peer.onicecandidate = e => {
 		socket.emit('send-local-description-offer', peer.localDescription, callId)
+		e.candidate && socket.emit('send-candidate', e.candidate, callId)
 	}
 
 	const offerDescription = await peer.createOffer()
@@ -216,12 +252,13 @@ const answerCall = async () => {
 
 	socket.emit('answer-call', callId)
 	socket.on('receive-remote-description-offer', async offer => {
-		peer.onicecandidate = () => {
+		peer.onicecandidate = e => {
 			socket.emit(
 				'send-local-description-answer',
 				peer.localDescription,
 				callId
 			)
+			e.candidate && socket.emit('send-candidate', e.candidate, callId)
 		}
 
 		await peer.setRemoteDescription(offer)
@@ -230,6 +267,8 @@ const answerCall = async () => {
 		await peer.setLocalDescription(answerDescription)
 	})
 }
+
+socket.on('receive-candidate', candidate => peer.addIceCandidate(candidate))
 
 // Copies the call ID to the clipboard
 const copyToClipboard = async ({ target: { value } }) => {
@@ -277,27 +316,7 @@ createCallInput.addEventListener('click', copyToClipboard)
 
 clipboardPopup.addEventListener('transitionend', removePopup)
 
-peer.addEventListener('track', e => {
-	// e.streams[0].getTracks().forEach(track => {
-	// remoteUserStream.addTrack(track)
-	// })
-
-	console.group('Track event')
-	console.log('New track: ', e.track)
-	console.log('New receiver: ', e.receiver)
-	console.log('New transceiver: ', e.transceiver)
-	const tracks = peer.getReceivers().map(r => r.track)
-	const stream = new MediaStream(tracks)
-	remoteUserVideo.srcObject = stream
-	console.groupEnd()
-
-	// const tracks = e.streams[0].getTracks()
-	// tracks.forEach(console.log)
-	// console.log('--------------------------------------')
-	// remoteUserVideo.srcObject = e.streams[0]
-	remoteVideoGroup.style = ''
-	// remoteDisplayVideo.srcObject = peer.getRemoteStreams()[1]
-})
+// localUserStream
 
 // remoteUserStream.onaddtrack = () =>
 // (remoteUserVideo.srcObject = remoteUserStream)
