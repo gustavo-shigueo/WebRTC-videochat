@@ -14,6 +14,8 @@ let localUserStream = new MediaStream()
 let localDisplayStream = new MediaStream()
 let remoteUserStream = new MediaStream()
 let remoteDisplayStream = new MediaStream()
+let signallingChannel = null
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 let localStreamSettings = {
 	video: false,
 	audio: true,
@@ -64,21 +66,58 @@ peer.addEventListener('track', e => {
 	// tracks.forEach(console.log)
 	// console.log('--------------------------------------')
 	// remoteUserVideo.srcObject = e.streams[0]
-	remoteVideoGroup.style = ''
-	remoteUserVideo.srcObject = peer.getRemoteStreams()[0]
+	// remoteVideoGroup.style = ''
+	// remoteUserVideo.srcObject = peer.getRemoteStreams()[0]
 })
 
-localUserStream.addEventListener('addtrack', e => {
-	peer.addTrack(e.track, localUserStream)
-})
+const updateRemoteStreams = trackInfo => {
+	const { action, ...idAndSource } = trackInfo
 
-localUserStream.addEventListener('removetrack', e => {
-	const { id } = e.track.id
-	const [sender] = peer.getSenders().filter(s => {
-		s.track.id === id
-	})
-	peer.removeTrack(sender)
-})
+	if (!action || Object.keys(idAndSource).length === 0) return
+
+	const [id] = Object.keys(idAndSource)
+	const source = idAndSource[id]
+	const [receiver] = peer
+		.getReceivers()
+		.filter(receiver => receiver.track.id === id)
+	const track = receiver?.track
+
+	if (source.startsWith('Display')) {
+		if (action === 'remove') {
+			remoteDisplayStream = new MediaStream()
+			remoteDisplayVideo.srcObject = null
+			return
+		}
+
+		remoteDisplayStream.addTrack(track)
+		remoteDisplayVideo.srcObject ??= remoteDisplayStream
+		return
+	}
+
+	if (action === 'remove') {
+		remoteUserStream.removeTrack(track)
+		if (remoteUserStream.getTracks().length === 0) remoteUserVideo.srcObject = null
+		return
+	}
+
+	console.log({ trackInfo, track, id })
+	remoteUserStream.addTrack(track)
+	remoteUserVideo.srcObject ??= remoteDisplayStream
+}
+
+
+
+// localUserStream.addEventListener('addtrack', e => {
+// 	peer.addTrack(e.track, localUserStream)
+// })
+
+// localUserStream.addEventListener('removetrack', e => {
+// 	const { id } = e.track.id
+// 	const [sender] = peer.getSenders().filter(s => {
+// 		s.track.id === id
+// 	})
+// 	peer.removeTrack(sender)
+// })
 
 // Update the MediaStream object that contains the local user's
 // microphone and webcam
@@ -88,19 +127,21 @@ const updateLocalUserStream = async ({ video, audio }) => {
 
 	if (!video && !audio) return (localUserVideo.srcObject = null)
 	localUserStream = await navigator.mediaDevices.getUserMedia({
-		audio: true,
-		video: true,
+		audio,
+		video,
 	})
-	const [videoTrack] = localUserStream.getVideoTracks()
-	const [audioTrack] = localUserStream.getAudioTracks()
+	// const [videoTrack] = localUserStream.getVideoTracks()
+	// const [audioTrack] = localUserStream.getAudioTracks()
 
-	videoTrack.enabled = video
-	audioTrack.enabled = audio
+	// videoTrack.enabled = video
+	// audioTrack.enabled = audio
 
 	localUserVideo.srcObject = localUserStream
-	localUserStream.getTracks().forEach(track => {
+	localUserStream.getTracks().forEach(async track => {
+		track.source = `User ${track.kind}`
 		peer.addTrack(track, localUserStream)
-		peer.addTransceiver(track)
+		await sleep(300)
+		signallingChannel.send(JSON.stringify({ [track.id]: track.source, action: 'add' }))
 	})
 }
 
@@ -109,12 +150,20 @@ const updateLocalUserStream = async ({ video, audio }) => {
 const updateLocalDisplayStream = async ({ sharing }) => {
 	peer
 		.getSenders()
-		.filter(({ track: { label } }) => {
-			label && (label === 'System Audio' || label.startsWith('screen'))
+		.filter(({ track }) => {
+			return (
+				track?.source === 'Display video' || track?.source === 'Display audio'
+			)
 		})
 		.forEach(sender => peer.removeTrack(sender))
 	localDisplayVideo.parentElement.style.display = sharing ? 'block' : 'none'
-	if (!sharing) return (localDisplayVideo.srcObject = null)
+
+	if (!sharing) {
+		localDisplayVideo.srcObject = null
+		await sleep(300)
+		signallingChannel.send(JSON.stringify({ _: '', action: 'remove' }))
+		return
+	}
 
 	localDisplayStream = await navigator.mediaDevices.getDisplayMedia({
 		audio: true,
@@ -122,9 +171,51 @@ const updateLocalDisplayStream = async ({ sharing }) => {
 	})
 
 	localDisplayVideo.srcObject = localDisplayStream
-	localDisplayStream.getTracks().forEach(track => {
+	localDisplayStream.getTracks().forEach(async track => {
+		track.source = `Display ${track.kind}`
 		peer.addTrack(track, localDisplayStream)
+
+		await sleep(300)
+		signallingChannel.send(JSON.stringify({ [track.id]: track.source, action: 'add' }))
 	})
+}
+
+const initializeSignallingChannel = () => {
+	
+	signallingChannel.onopen = () => {
+		socket.disconnect()
+		updateLocalUserStream(localStreamSettings)
+		// updateLocalDisplayStream(localStreamSettings)
+	
+		document
+			.querySelectorAll('.controls button')
+			.forEach(el => el.removeAttribute('disabled'))
+	}
+
+	signallingChannel.onmessage = async e => {
+		await sleep(0)
+		const { sdp = null, candidate = null, ...trackInfo } = JSON.parse(e.data)
+
+		if (!sdp && !candidate) return updateRemoteStreams(trackInfo)
+
+		try {
+			if (sdp) {
+				const offerDescription = new RTCSessionDescription(sdp)
+				if (offerDescription.type !== 'offer')
+					return await peer.setRemoteDescription(offerDescription)
+
+				await peer.setRemoteDescription(offerDescription)
+				const answerDescription = await peer.createAnswer()
+				await peer.setLocalDescription(answerDescription)
+				signallingChannel.send(JSON.stringify({ sdp: peer.localDescription }))
+				return
+			}
+
+			await peer.addIceCandidate(new RTCIceCandidate(candidate))
+		} catch (error) {
+			console.log(error)
+		}
+	}
 }
 
 // Toggles the local user's webcam or microphone when the respective
@@ -148,10 +239,29 @@ const toggleCameraOrMic = async (e, device) => {
 			? localUserStream.getAudioTracks()
 			: localUserStream.getVideoTracks()
 
-	track.enabled = !track.enabled
+	if (device === 'audio') return (track.enabled = !track.enabled)
 
-	if (device === 'audio') return
-	localUserVideo.parentElement.style.display = track.enabled ? 'block' : 'none'
+	if (track) {
+		track.stop()
+		localUserStream.removeTrack(track)
+		localUserVideo.parentElement.style.display = 'none'
+
+		const [sender] = peer.getSenders().filter(sender => sender.track.id === track.id)
+		peer.removeTrack(sender)
+		signallingChannel.send(JSON.stringify({ [track.id]: track.source, action: 'remove' }))
+		return
+	}
+
+	const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+	const [videoTrack] = stream.getVideoTracks()
+	videoTrack.source = 'User video'
+	localUserStream.addTrack(videoTrack)
+	peer.addTrack(videoTrack, localUserStream)
+
+	await sleep(300)
+	signallingChannel.send(JSON.stringify({ [videoTrack.id]: videoTrack.source, action: 'add' }))
+
+	localUserVideo.parentElement.style.display = 'block'
 }
 
 // Toggles the local user's screen sharing
@@ -228,6 +338,8 @@ const hangup = () => {
 // * Creates a call
 const createCall = async () => {
 	const callId = uuidV4()
+	signallingChannel = peer.createDataChannel('signalling')
+	initializeSignallingChannel()
 	createCallInput.value = callId
 
 	socket.emit('join', callId)
@@ -249,6 +361,11 @@ const createCall = async () => {
 // * Answers a call
 const answerCall = async () => {
 	const callId = answerCallInput.value
+
+	peer.addEventListener('datachannel', e => {
+		signallingChannel = e.channel
+		initializeSignallingChannel()
+	})
 
 	socket.emit('answer-call', callId)
 	socket.on('receive-remote-description-offer', async offer => {
@@ -291,6 +408,14 @@ const removePopup = () => {
 	setTimeout(() => clipboardPopup.classList.remove('active'), 1000)
 }
 
+// Handles renegotiation
+const renegotiate = async () => {
+	if (!signallingChannel || signallingChannel?.readyState !== 'open') return
+	const offer = await peer.createOffer()
+	await peer.setLocalDescription(offer)
+	signallingChannel.send(JSON.stringify({ sdp: peer.localDescription }))
+}
+
 // Setting up the event listeners
 shareBtn.addEventListener('click', toggleSharing)
 
@@ -306,8 +431,8 @@ document
 	.querySelectorAll('button')
 	.forEach(btn => btn.addEventListener('click', e => e.target.blur()))
 
-updateLocalUserStream(localStreamSettings)
-updateLocalDisplayStream(localStreamSettings)
+// updateLocalUserStream(localStreamSettings)
+// updateLocalDisplayStream(localStreamSettings)
 
 createCallBtn.addEventListener('click', createCall)
 answerCallBtn.addEventListener('click', answerCall)
@@ -315,6 +440,8 @@ answerCallBtn.addEventListener('click', answerCall)
 createCallInput.addEventListener('click', copyToClipboard)
 
 clipboardPopup.addEventListener('transitionend', removePopup)
+
+peer.addEventListener('negotiationneeded', renegotiate)
 
 // localUserStream
 
