@@ -8,12 +8,12 @@ const servers = {
 
 // Global State
 const peer = new RTCPeerConnection(servers)
-const socket = io('wss://3001-chocolate-fox-weyzytiv.ws-us10.gitpod.io')
+const socket = io(`wss://${location.host.replace('5500', '3001')}`)
 // const mediaDevices = await navigator.mediaDevices.enumerateDevices()
 let localUserStream = new MediaStream()
 let localDisplayStream = new MediaStream()
-let remoteUserStream = new MediaStream()
-let remoteDisplayStream = new MediaStream()
+let remoteUserStreamID = ''
+let remoteDisplayStreamID = ''
 let signallingChannel = null
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 let localStreamSettings = {
@@ -29,14 +29,13 @@ const answerCallInput = document.querySelector('#answer-id')
 const createCallBtn = document.querySelector('[data-function="create-call"]')
 const answerCallBtn = document.querySelector('[data-function="answer-call"]')
 const localVideoGroup = document.querySelector('.client').parentElement
-const remoteVideoGroup = document.querySelector('.remote')
 const localUserVideo = document.querySelector('.client [data-user-stream]')
 const localDisplayVideo = document.querySelector(
 	'.client [data-display-stream]'
 )
 const remoteUserVideo = document.querySelector('.remote [data-user-stream]')
 const remoteDisplayVideo = document.querySelector(
-	'.remote [data-remote-stream]'
+	'.remote [data-display-stream]'
 )
 const [cameraBtn, muteBtn, shareBtn, hangupBtn] =
 	document.querySelectorAll('.controls button')
@@ -46,83 +45,103 @@ const fullscreenToggles = document.querySelectorAll(
 
 localUserVideo.muted = true
 localDisplayVideo.muted = true
-remoteVideoGroup.style.display = 'none'
+// localUserVideo.parentElement.style.display = 'none'
+// localDisplayVideo.parentElement.style.display = 'none'
 
+// remoteUserVideo.parentElement.style.display = 'none'
+// remoteDisplayVideo.parentElement.style.display = 'none'
+
+// A new remote track has benn added
 peer.addEventListener('track', e => {
-	// e.streams[0].getTracks().forEach(track => {
-	// remoteUserStream.addTrack(track)
-	// })
+	const [stream] = e.streams
 
-	console.group('Track event')
-	console.log('New track: ', e.track)
-	console.log('New receiver: ', e.receiver)
-	console.log('New transceiver: ', e.transceiver)
-	// const tracks = peer.getReceivers().map(r => r.track)
-	// const stream = new MediaStream(tracks)
-	// remoteUserVideo.srcObject = stream
-	console.groupEnd()
+	// The stream being handled is the screen share stream
+	if (stream.id === remoteDisplayStreamID) {
+		stream.addEventListener(
+			'removetrack',
+			() => (remoteDisplayVideo.parentElement.style.display = 'none')
+		)
+		remoteDisplayVideo.srcObject = stream
+		remoteDisplayVideo.parentElement.removeAttribute('style')
+		return
+	}
 
-	// const tracks = e.streams[0].getTracks()
-	// tracks.forEach(console.log)
-	// console.log('--------------------------------------')
-	// remoteUserVideo.srcObject = e.streams[0]
-	// remoteVideoGroup.style = ''
-	// remoteUserVideo.srcObject = peer.getRemoteStreams()[0]
+	// The stream being handled is the user stream
+	stream.addEventListener('addtrack', e => {
+		if (e.track.kind === 'video')
+			remoteUserVideo.parentElement.removeAttribute('style')
+	})
+	stream.addEventListener('removetrack', e => {
+		if (e.track.kind === 'video')
+			remoteUserVideo.parentElement.style.display = 'none'
+	})
+
+	remoteUserVideo.srcObject = stream
 })
 
-const updateRemoteStreams = trackInfo => {
-	const { action, ...idAndSource } = trackInfo
+peer.addEventListener('connectionstatechange', () => {
+	if (peer.connectionState === 'disconnected') location.pathname = '/'
+})
 
-	if (!action || Object.keys(idAndSource).length === 0) return
+const initializeSignallingChannel = () => {
+	signallingChannel.onopen = async () => {
+		socket.disconnect()
 
-	const [id] = Object.keys(idAndSource)
-	const source = idAndSource[id]
-	const [receiver] = peer
-		.getReceivers()
-		.filter(receiver => receiver.track.id === id)
-	const track = receiver?.track
+		signallingChannel.send(
+			JSON.stringify({
+				userStreamID: localUserStream.id,
+				displayStreamID: localDisplayStream.id,
+			})
+		)
+		document
+			.querySelectorAll('.controls button')
+			.forEach(el => el.removeAttribute('disabled'))
+	}
 
-	if (source.startsWith('Display')) {
-		if (action === 'remove') {
-			remoteDisplayStream = new MediaStream()
-			remoteDisplayVideo.srcObject = null
+	signallingChannel.onmessage = async e => {
+		await sleep(0)
+		const {
+			sdp = null,
+			candidate = null,
+			userStreamID = '',
+			displayStreamID = '',
+		} = JSON.parse(e.data)
+
+		if (userStreamID && displayStreamID) {
+			remoteUserStreamID = userStreamID
+			remoteDisplayStreamID = displayStreamID
 			return
 		}
 
-		remoteDisplayStream.addTrack(track)
-		remoteDisplayVideo.srcObject ??= remoteDisplayStream
-		return
-	}
+		if (!sdp && !candidate) return
 
-	if (action === 'remove') {
-		remoteUserStream.removeTrack(track)
-		if (remoteUserStream.getTracks().length === 0) remoteUserVideo.srcObject = null
-		return
-	}
+		try {
+			if (sdp) {
+				const offerDescription = new RTCSessionDescription(sdp)
 
-	console.log({ trackInfo, track, id })
-	remoteUserStream.addTrack(track)
-	remoteUserVideo.srcObject ??= remoteDisplayStream
+				if (offerDescription.type !== 'offer') {
+					return await peer.setRemoteDescription(offerDescription)
+				}
+
+				await peer.setRemoteDescription(offerDescription)
+				const answerDescription = await peer.createAnswer()
+
+				await peer.setLocalDescription(answerDescription)
+				signallingChannel.send(JSON.stringify({ sdp: peer.localDescription }))
+
+				return
+			}
+
+			await peer.addIceCandidate(new RTCIceCandidate(candidate))
+		} catch (error) {
+			console.log(error)
+		}
+	}
 }
-
-
-
-// localUserStream.addEventListener('addtrack', e => {
-// 	peer.addTrack(e.track, localUserStream)
-// })
-
-// localUserStream.addEventListener('removetrack', e => {
-// 	const { id } = e.track.id
-// 	const [sender] = peer.getSenders().filter(s => {
-// 		s.track.id === id
-// 	})
-// 	peer.removeTrack(sender)
-// })
 
 // Update the MediaStream object that contains the local user's
 // microphone and webcam
 const updateLocalUserStream = async ({ video, audio }) => {
-	// peer.getSenders().forEach(sender => peer.removeTrack(sender))
 	localUserVideo.parentElement.style.display = video ? 'block' : 'none'
 
 	if (!video && !audio) return (localUserVideo.srcObject = null)
@@ -130,18 +149,11 @@ const updateLocalUserStream = async ({ video, audio }) => {
 		audio,
 		video,
 	})
-	// const [videoTrack] = localUserStream.getVideoTracks()
-	// const [audioTrack] = localUserStream.getAudioTracks()
-
-	// videoTrack.enabled = video
-	// audioTrack.enabled = audio
 
 	localUserVideo.srcObject = localUserStream
 	localUserStream.getTracks().forEach(async track => {
 		track.source = `User ${track.kind}`
 		peer.addTrack(track, localUserStream)
-		await sleep(300)
-		signallingChannel.send(JSON.stringify({ [track.id]: track.source, action: 'add' }))
 	})
 }
 
@@ -158,64 +170,22 @@ const updateLocalDisplayStream = async ({ sharing }) => {
 		.forEach(sender => peer.removeTrack(sender))
 	localDisplayVideo.parentElement.style.display = sharing ? 'block' : 'none'
 
-	if (!sharing) {
-		localDisplayVideo.srcObject = null
-		await sleep(300)
-		signallingChannel.send(JSON.stringify({ _: '', action: 'remove' }))
-		return
-	}
+	if (!sharing) return (localDisplayVideo.srcObject = null)
 
-	localDisplayStream = await navigator.mediaDevices.getDisplayMedia({
+	const stream = await navigator.mediaDevices.getDisplayMedia({
 		audio: true,
 		video: true,
 	})
+
+	localDisplayStream.getTracks().forEach(track => localDisplayStream.removeTrack(track))
+
+	stream.getTracks().forEach(track => localDisplayStream.addTrack(track))
 
 	localDisplayVideo.srcObject = localDisplayStream
 	localDisplayStream.getTracks().forEach(async track => {
 		track.source = `Display ${track.kind}`
 		peer.addTrack(track, localDisplayStream)
-
-		await sleep(300)
-		signallingChannel.send(JSON.stringify({ [track.id]: track.source, action: 'add' }))
 	})
-}
-
-const initializeSignallingChannel = () => {
-	
-	signallingChannel.onopen = () => {
-		socket.disconnect()
-		updateLocalUserStream(localStreamSettings)
-		// updateLocalDisplayStream(localStreamSettings)
-	
-		document
-			.querySelectorAll('.controls button')
-			.forEach(el => el.removeAttribute('disabled'))
-	}
-
-	signallingChannel.onmessage = async e => {
-		await sleep(0)
-		const { sdp = null, candidate = null, ...trackInfo } = JSON.parse(e.data)
-
-		if (!sdp && !candidate) return updateRemoteStreams(trackInfo)
-
-		try {
-			if (sdp) {
-				const offerDescription = new RTCSessionDescription(sdp)
-				if (offerDescription.type !== 'offer')
-					return await peer.setRemoteDescription(offerDescription)
-
-				await peer.setRemoteDescription(offerDescription)
-				const answerDescription = await peer.createAnswer()
-				await peer.setLocalDescription(answerDescription)
-				signallingChannel.send(JSON.stringify({ sdp: peer.localDescription }))
-				return
-			}
-
-			await peer.addIceCandidate(new RTCIceCandidate(candidate))
-		} catch (error) {
-			console.log(error)
-		}
-	}
 }
 
 // Toggles the local user's webcam or microphone when the respective
@@ -243,12 +213,12 @@ const toggleCameraOrMic = async (e, device) => {
 
 	if (track) {
 		track.stop()
+		const [sender] = peer.getSenders().filter(sender => sender?.track?.id === track?.id)
+		peer.removeTrack(sender)
+
 		localUserStream.removeTrack(track)
 		localUserVideo.parentElement.style.display = 'none'
-
-		const [sender] = peer.getSenders().filter(sender => sender.track.id === track.id)
-		peer.removeTrack(sender)
-		signallingChannel.send(JSON.stringify({ [track.id]: track.source, action: 'remove' }))
+		console.log({ sender, track })
 		return
 	}
 
@@ -257,10 +227,6 @@ const toggleCameraOrMic = async (e, device) => {
 	videoTrack.source = 'User video'
 	localUserStream.addTrack(videoTrack)
 	peer.addTrack(videoTrack, localUserStream)
-
-	await sleep(300)
-	signallingChannel.send(JSON.stringify({ [videoTrack.id]: videoTrack.source, action: 'add' }))
-
 	localUserVideo.parentElement.style.display = 'block'
 }
 
@@ -303,8 +269,8 @@ const toggleFullscreen = async e => {
 		return
 	}
 
-	e.target.style = ''
-	video.style = ''
+	e.target.removeAttribute('style')
+	video.removeAttribute('style')
 	await document.exitFullscreen()
 }
 
@@ -326,19 +292,22 @@ const hangup = () => {
 	})
 	;[localUserStream, localDisplayStream].forEach(stream =>
 		stream.getTracks().forEach(track => {
-			peer.getSenders().forEach(peer.removeTrack)
 			track.stop()
 			stream.removeTrack(track)
+			peer.getSenders().forEach(sender => peer.removeTrack(sender))
 		})
 	)
 
-	window.location.href = '/'
+	peer.close()
+
+	location.pathname = '/'
 }
 
 // * Creates a call
 const createCall = async () => {
 	const callId = uuidV4()
 	signallingChannel = peer.createDataChannel('signalling')
+	await updateLocalUserStream(localStreamSettings)
 	initializeSignallingChannel()
 	createCallInput.value = callId
 
@@ -431,8 +400,9 @@ document
 	.querySelectorAll('button')
 	.forEach(btn => btn.addEventListener('click', e => e.target.blur()))
 
-// updateLocalUserStream(localStreamSettings)
-// updateLocalDisplayStream(localStreamSettings)
+document.addEventListener('fullscreenchange', e => {
+	if (!document.fullscreenElement) fullscreenToggles.forEach(toggle => toggle.classList.remove('active'))
+})
 
 createCallBtn.addEventListener('click', createCall)
 answerCallBtn.addEventListener('click', answerCall)
@@ -442,8 +412,3 @@ createCallInput.addEventListener('click', copyToClipboard)
 clipboardPopup.addEventListener('transitionend', removePopup)
 
 peer.addEventListener('negotiationneeded', renegotiate)
-
-// localUserStream
-
-// remoteUserStream.onaddtrack = () =>
-// (remoteUserVideo.srcObject = remoteUserStream)
