@@ -45,6 +45,19 @@ body {
 	box-sizing: border-box;
 }
 
+.video-container::after {
+	content: attr(aria-label);
+	background-color: var(--color-neutral-dark);
+	color: var(--color-neutral-light);
+
+	position: absolute;
+	bottom: 1rem;
+	left: 1rem;
+	z-index: 10;
+
+	padding: 5px 10px;
+}
+
 .controls {
 	position: fixed;
 	bottom: 1rem;
