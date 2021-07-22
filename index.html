@@ -55,7 +55,12 @@
 		</div>
 
 		<div class="controls">
-			<button disabled type="button" data-function="video" aria-label="Enable camera">
+			<button
+				disabled
+				type="button"
+				data-function="video"
+				aria-label="Enable camera"
+			>
 				<span class="material-icons-outlined">videocam</span>
 				<span class="material-icons-outlined">videocam_off</span>
 			</button>
@@ -63,63 +68,69 @@
 				<span class="material-icons-outlined">mic_off</span>
 				<span class="material-icons-outlined">mic</span>
 			</button>
-			<button disabled type="button" data-function="share" aria-label="Share screen">
+			<button
+				disabled
+				type="button"
+				data-function="share"
+				aria-label="Share screen"
+			>
 				<span class="material-icons-outlined">screen_share</span>
 				<span class="material-icons-outlined">stop_screen_share</span>
 			</button>
-			<button disabled type="button" data-function="hangup" aria-label="Leave call">
+			<button
+				disabled
+				type="button"
+				data-function="hangup"
+				aria-label="Leave call"
+			>
 				<span class="material-icons-outlined">call_end</span>
 			</button>
 		</div>
 
 		<div class="video-grid">
-			<div class="video-layout">
-				<div class="client video-container">
-					<video autoplay muted data-user-stream></video>
-					<button
-						type="button"
-						data-function="fullscreen"
-						aria-label="Fullscreen"
-					>
-						<span class="material-icons-outlined">fullscreen</span>
-						<span class="material-icons-outlined">fullscreen_exit</span>
-					</button>
-				</div>
-				<div class="client video-container">
-					<video autoplay muted data-display-stream></video>
-					<button
-						type="button"
-						data-function="fullscreen"
-						aria-label="Fullscreen"
-					>
-						<span class="material-icons-outlined">fullscreen</span>
-						<span class="material-icons-outlined">fullscreen_exit</span>
-					</button>
-				</div>
+			<div class="client video-container">
+				<video autoplay muted data-user-stream></video>
+				<button
+					type="button"
+					data-function="fullscreen"
+					aria-label="Fullscreen"
+				>
+					<span class="material-icons-outlined">fullscreen</span>
+					<span class="material-icons-outlined">fullscreen_exit</span>
+				</button>
 			</div>
-			<div class="remote video-layout" data-remote-stream>
-				<div class="video-container">
-					<video autoplay data-user-stream></video>
-					<button
-						type="button"
-						data-function="fullscreen"
-						aria-label="Fullscreen"
-					>
-						<span class="material-icons-outlined">fullscreen</span>
-						<span class="material-icons-outlined">fullscreen_exit</span>
-					</button>
-				</div>
-				<div class="video-container">
-					<video data-display-stream></video>
-					<button
-						type="button"
-						data-function="fullscreen"
-						aria-label="Fullscreen"
-					>
-						<span class="material-icons-outlined">fullscreen</span>
-						<span class="material-icons-outlined">fullscreen_exit</span>
-					</button>
-				</div>
+			<div class="client video-container">
+				<video autoplay muted data-display-stream></video>
+				<button
+					type="button"
+					data-function="fullscreen"
+					aria-label="Fullscreen"
+				>
+					<span class="material-icons-outlined">fullscreen</span>
+					<span class="material-icons-outlined">fullscreen_exit</span>
+				</button>
+			</div>
+			<div class="remote video-container">
+				<video autoplay data-user-stream></video>
+				<button
+					type="button"
+					data-function="fullscreen"
+					aria-label="Fullscreen"
+				>
+					<span class="material-icons-outlined">fullscreen</span>
+					<span class="material-icons-outlined">fullscreen_exit</span>
+				</button>
+			</div>
+			<div class="remote video-container">
+				<video autoplay data-display-stream></video>
+				<button
+					type="button"
+					data-function="fullscreen"
+					aria-label="Fullscreen"
+				>
+					<span class="material-icons-outlined">fullscreen</span>
+					<span class="material-icons-outlined">fullscreen_exit</span>
+				</button>
 			</div>
 		</div>
 
