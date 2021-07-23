@@ -21,6 +21,11 @@ const calls = [
 io.on('connection', socket => {
 	socket.on('join', socket.join)
 
+	socket.on('check-for-call', callId => {
+		const [call] = calls.filter(({ id }) => callId === id)
+		io.to(socket.id).emit('check-result', !!call)
+	})
+
 	socket.on('send-local-description-offer', (offerDescription, callId) => {
 		const call = calls.filter(({ id }) => callId === id)?.[0] ?? {
 			id: callId,
@@ -57,6 +62,11 @@ io.on('connection', socket => {
 		socket.broadcast
 			.to(callId)
 			.emit('receive-candidate', candidate)
+	})
+
+	socket.on('remove-call', callId => {
+		const index = calls.findIndex(({ id }) => id === callId)
+		calls.splice(index, 1)
 	})
 
 	socket.onAny((event, ...args) => console.log({ event, args }))
