@@ -88,7 +88,7 @@ const handleRemoteTrack = e => {
  */
 const disconnect = e => {
 	if (!e || (e && peer.connectionState === 'disconnected'))
-		location.pathname = '/'
+		location.href = `https://${location.host}`
 }
 
 /**
@@ -210,7 +210,7 @@ const updateLocalDisplayStream = async sharing => {
 		.forEach(sender => peer.removeTrack(sender))
 
 	// Hides the screen share preview when the screen is not being shared
-	localDisplayVideo.parentElement.style.display = sharing ? 'block' : 'none'
+	localDisplayVideo.parentElement.style.display = sharing ? 'flex' : 'none'
 
 	if (!sharing) {
 		localDisplayVideo.srcObject = null
@@ -305,7 +305,7 @@ const toggleCameraOrMic = async (e, device) => {
 	peer.addTrack(videoTrack, localUserStream)
 
 	// Displays the webcam feed
-	localUserVideo.parentElement.style.display = 'block'
+	localUserVideo.parentElement.style.display = 'flex'
 }
 
 /**
@@ -348,14 +348,17 @@ const toggleFullscreen = async e => {
 	const active = e.target.classList.toggle('active')
 
 	if (active) {
+		document.querySelectorAll('video').forEach(e => e.parentElement.style.visibility = 'hidden')
 		await document.body.requestFullscreen()
-		video.style = 'position: fixed; inset: 0'
-		e.target.style = 'z-index: 2147483647; position: fixed;'
+		video.parentElement.style = 'position: fixed; inset: 0px; height: 100vh'
 		return
 	}
 
+	document
+		.querySelectorAll('video')
+		.forEach(e => (e.parentElement.style.visibility = ''))
 	e.target.removeAttribute('style')
-	video.removeAttribute('style')
+	video.parentElement.style = 'display: flex;'
 	await document.exitFullscreen()
 }
 
@@ -366,7 +369,7 @@ const hangup = () => {
 	signallingChannel.send(JSON.stringify({ action: 'disconnect' }))
 	peer.close()
 	disconnect()
-	location.pathname = '/'
+	location.href = `https://${location.host}`
 }
 
 /**
@@ -451,8 +454,19 @@ document
 	.forEach(btn => btn.addEventListener('click', e => e.target.blur()))
 
 document.addEventListener('fullscreenchange', () => {
-	if (!document.fullscreenElement)
-		fullscreenToggles.forEach(toggle => toggle.classList.remove('active'))
+	if (document.fullscreenElement) return
+	document
+		.querySelectorAll('video')
+		.forEach(e => {
+			e.parentElement.style.visibility = ''
+			e.parentElement.style.position = ''
+			e.parentElement.style.inset = ''
+			e.parentElement.style.height = ''
+		})
+	document
+		.querySelectorAll('[data-function="fullscreen"]')
+		.forEach(e => e.removeAttribute('style'))
+	fullscreenToggles.forEach(toggle => toggle.classList.remove('active'))
 })
 
 peer.addEventListener('negotiationneeded', renegotiate)
