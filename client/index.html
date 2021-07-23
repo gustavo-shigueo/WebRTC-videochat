@@ -23,37 +23,6 @@
 		<!-- <script src="./socket.js" defer></script> -->
 	</head>
 	<body>
-		<div class="call-ids">
-			<div class="call-input">
-				<div class="input-group">
-					<label for="call-id">Create a call</label>
-					<input type="text" readonly id="call-id" />
-					<span class="material-icons-outlined">copy</span>
-				</div>
-				<button
-					type="button"
-					data-function="create-call"
-					aria-label="Start a call"
-				>
-					<span class="material-icons-outlined">phone_forwarded</span>
-				</button>
-			</div>
-
-			<div class="answer-input">
-				<div class="input-group">
-					<label for="answer-id">Answer a call</label>
-					<input type="text" placeholder="Call ID" id="answer-id" />
-				</div>
-				<button
-					type="button"
-					data-function="answer-call"
-					aria-label="Answer a call"
-				>
-					<span class="material-icons-outlined">phone_callback</span>
-				</button>
-			</div>
-		</div>
-
 		<div class="controls">
 			<button
 				disabled
@@ -88,7 +57,7 @@
 		</div>
 
 		<div class="video-grid">
-			<div class="client video-container" aria-label="Your camera">
+			<div class="client video-container" aria-label="Your camera" style="display: none;">
 				<video autoplay muted data-user-stream></video>
 				<button
 					type="button"
@@ -99,7 +68,7 @@
 					<span class="material-icons-outlined">fullscreen_exit</span>
 				</button>
 			</div>
-			<div class="client video-container" aria-label="Your screen">
+			<div class="client video-container" aria-label="Your screen" style="display: none;">
 				<video autoplay muted data-display-stream></video>
 				<button
 					type="button"
@@ -110,7 +79,7 @@
 					<span class="material-icons-outlined">fullscreen_exit</span>
 				</button>
 			</div>
-			<div class="remote video-container" aria-label="Your contact's camera">
+			<div class="remote video-container" aria-label="Your contact's camera" style="display: none;">
 				<video autoplay data-user-stream></video>
 				<button
 					type="button"
@@ -121,7 +90,7 @@
 					<span class="material-icons-outlined">fullscreen_exit</span>
 				</button>
 			</div>
-			<div class="remote video-container" aria-label="Your contact's screen">
+			<div class="remote video-container" aria-label="Your contact's screen" style="display: none;">
 				<video autoplay data-display-stream></video>
 				<button
 					type="button"
@@ -133,7 +102,5 @@
 				</button>
 			</div>
 		</div>
-
-		<div class="copy-popup">Call ID copied to clipboard</div>
 	</body>
 </html>
