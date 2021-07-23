@@ -10,26 +10,24 @@ const servers = {
 const peer = new RTCPeerConnection(servers)
 const socket = io(`wss://${location.host.replace('5500', '3001')}`)
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const callId = window.location.search
+const callIdRegExp =
+	/^\?callId=[0-9a-f]{8}\-[0-9a-f]{4}\-4[0-9a-f]{3}\-[89ab][0-9a-f]{3}\-[0-9a-f]{12}$/
+
+if (!callId.match(callIdRegExp)) window.location.href = `/?callId=${uuidV4()}`
+
 let localUserStream = new MediaStream()
 let localDisplayStream = new MediaStream()
 let remoteUserStreamID = ''
 let remoteDisplayStreamID = ''
-let localStreamSettings = {
-	video: false,
-	audio: true,
-	sharing: false,
-}
+let isSharing = false
+
 /**
  * @type {RTCDataChannel}
  */
 let signallingChannel = null
 
 // DOM Elements
-const clipboardPopup = document.querySelector('.copy-popup')
-const createCallInput = document.querySelector('#call-id')
-const answerCallInput = document.querySelector('#answer-id')
-const createCallBtn = document.querySelector('[data-function="create-call"]')
-const answerCallBtn = document.querySelector('[data-function="answer-call"]')
 const localVideoGroup = document.querySelector('.client').parentElement
 const localUserVideo = document.querySelector('.client [data-user-stream]')
 const localDisplayVideo = document.querySelector(
@@ -99,8 +97,10 @@ const disconnect = e => {
 const signallingChannelConnection = () => {
 	// Socket.io will no longer handle messaging since
 	// the peers already have a way to communicate
+	socket.emit('remove-call', callId)
 	socket.disconnect()
 
+	// Sends the local MediaStreams' IDs to the remote peer
 	signallingChannel.send(
 		JSON.stringify({
 			userStreamID: localUserStream.id,
@@ -165,27 +165,27 @@ const initializeSignallingChannel = () => {
 
 /**
  * Creates the MediaStream object that contains the local user's
- * microphone and webcam
- * @param {Object} setting Wether or not the local user wants their microphone and webcam on
- * @param {boolean} settings.video
- * @param {boolean} settings.audio
+ * microphone and webcam.
+ * By default, the webcam is off and the microphone is on
  */
-const createLocalUserStream = async ({ video = false, audio = true }) => {
-	localUserVideo.parentElement.style.display = video ? 'block' : 'none'
+const createLocalUserStream = async () => {
+	// Webcam is off, so the webcam feed is hidden
+	localUserVideo.parentElement.style.display = 'none'
 
-	if (!video && !audio) {
-		localUserVideo.srcObject = null
-		return
-	}
-
+	// Creates a MediaStream
 	const stream = await navigator.mediaDevices.getUserMedia({
-		audio,
-		video,
+		audio: true,
+		video: false,
 	})
 
+	// Adds the tracks from the MediaStream to the stream that will be sent
+	// to the remote user
 	stream.getTracks().forEach(track => localUserStream.addTrack(track))
 
+	// Connects the stream to the webcam feed
 	localUserVideo.srcObject = localUserStream
+
+	// Adds tracks to the peer connection and binds them to the local MediaStream
 	localUserStream.getTracks().forEach(track => {
 		track.source = `User ${track.kind}`
 		peer.addTrack(track, localUserStream)
@@ -193,12 +193,13 @@ const createLocalUserStream = async ({ video = false, audio = true }) => {
 }
 
 /**
- * Update the MediaStream object that contains the local user's
+ * Updates the MediaStream object that contains the local user's
  * screen share
  * @param {Object} settings Wether or not the local user wants to share their screen
  * @param {boolean} settings.sharing
  */
-const updateLocalDisplayStream = async ({ sharing }) => {
+const updateLocalDisplayStream = async sharing => {
+	// Removes all the screen sharing related tracks from the peer connection
 	peer
 		.getSenders()
 		.filter(({ track }) => {
@@ -207,6 +208,8 @@ const updateLocalDisplayStream = async ({ sharing }) => {
 			)
 		})
 		.forEach(sender => peer.removeTrack(sender))
+
+	// Hides the screen share preview when the screen is not being shared
 	localDisplayVideo.parentElement.style.display = sharing ? 'block' : 'none'
 
 	if (!sharing) {
@@ -215,6 +218,7 @@ const updateLocalDisplayStream = async ({ sharing }) => {
 	}
 
 	/**
+	 * Initializes a new MediaStream object for the screen share
 	 * @type {MediaStream}
 	 */
 	const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -222,13 +226,25 @@ const updateLocalDisplayStream = async ({ sharing }) => {
 		video: true,
 	})
 
+	/**
+	 * The process below is done to preserve the local MediaStream's ID
+	 * This is important because the signalling channel sends the ID
+	 * to help the remote peer with separating the user stream (webcam + mic)
+	 * and the display stream (screen sharing)
+	 */
+
+	// Removes all of the old tracks from the local MediaStream
 	localDisplayStream
 		.getTracks()
 		.forEach(track => localDisplayStream.removeTrack(track))
 
+	// Adds all the tracks from the new MediaStream into the local
+	// MediaStream object
 	stream.getTracks().forEach(track => localDisplayStream.addTrack(track))
 
 	localDisplayVideo.srcObject = localDisplayStream
+
+	// Adds the tracks to the peer connection
 	localDisplayStream.getTracks().forEach(async track => {
 		track.source = `Display ${track.kind}`
 		peer.addTrack(track, localDisplayStream)
@@ -242,6 +258,7 @@ const updateLocalDisplayStream = async ({ sharing }) => {
  * @param {string} device Which media source the use wants to toggle
  */
 const toggleCameraOrMic = async (e, device) => {
+	// Handles the UI changes that happen when the camera or mute buttons are clicked
 	const active = e.target.classList.toggle('active')
 	const tooltips = {
 		audio: ['Unmute', 'Mute'],
@@ -250,22 +267,21 @@ const toggleCameraOrMic = async (e, device) => {
 
 	e.target.setAttribute('aria-label', tooltips[device][active ? 0 : 1])
 
-	localStreamSettings = {
-		...localStreamSettings,
-		[device]: !localStreamSettings[device],
-	}
-
+	// Gets the track that will be toggled
 	const [track] =
 		device === 'audio'
 			? localUserStream.getAudioTracks()
 			: localUserStream.getVideoTracks()
 
-	if (device === 'audio') {
-		track.enabled = !track.enabled
-		return
-	}
-
+	// If the track exists
 	if (track) {
+		// Toggle the track
+		track.enabled = !track.enabled
+
+		// If it's an audio track, return
+		if (device === 'audio') return
+
+		// Remove the track from both the local MediaStream and the peer connection
 		track.stop()
 		const [sender] = peer
 			.getSenders()
@@ -273,15 +289,22 @@ const toggleCameraOrMic = async (e, device) => {
 		peer.removeTrack(sender)
 
 		localUserStream.removeTrack(track)
+
+		// Hides the webcam feed and returns
 		localUserVideo.parentElement.style.display = 'none'
 		return
 	}
 
+	// Creates a new video track from the webcam
 	const stream = await navigator.mediaDevices.getUserMedia({ video: true })
 	const [videoTrack] = stream.getVideoTracks()
 	videoTrack.source = 'User video'
+
+	// Adds the new track to the local MediaStream and to the peer connection
 	localUserStream.addTrack(videoTrack)
 	peer.addTrack(videoTrack, localUserStream)
+
+	// Displays the webcam feed
 	localUserVideo.parentElement.style.display = 'block'
 }
 
@@ -289,28 +312,30 @@ const toggleCameraOrMic = async (e, device) => {
  * Toggles the local user's screen sharing
  */
 const toggleSharing = async () => {
+	// UI updates on the click event
 	const active = shareBtn.classList.toggle('active')
 	shareBtn.setAttribute('aria-label', active ? 'Stop sharing' : 'Share screen')
 
-	localStreamSettings = {
-		...localStreamSettings,
-		sharing: !localStreamSettings.sharing,
-	}
+	// Updates the isSharing state
+	isSharing = !isSharing
 
 	try {
-		await updateLocalDisplayStream(localStreamSettings)
+		// Toggles the screen sharing
+		await updateLocalDisplayStream(isSharing)
 	} catch (error) {
-		if (localDisplayStream.getVideoTracks().length === 0) {
-			localStreamSettings = {
-				...localStreamSettings,
-				sharing: false,
-			}
+		// An error will be thrown if the user selects 'cancel' when prompted
+		// to select a window to share (there may be other cases, but they will be handled
+		// the same way)
 
-			shareBtn.classList.remove('active')
-			cameraBtn.removeAttribute('disabled')
-			shareBtn.setAttribute('aria-label', 'Share screen')
-			await updateLocalDisplayStream(localStreamSettings)
-		}
+		// In this situation, isSharing will always be false
+		isSharing = false
+
+		// Undoes the changes to the UI and runs updateLocalDisplayStream to ensure there are
+		// no tracks running
+		shareBtn.classList.remove('active')
+		cameraBtn.removeAttribute('disabled')
+		shareBtn.setAttribute('aria-label', 'Share screen')
+		await updateLocalDisplayStream(isSharing)
 	}
 }
 
@@ -348,11 +373,9 @@ const hangup = () => {
  * Creates a call
  */
 const createCall = async () => {
-	const callId = uuidV4()
 	signallingChannel = peer.createDataChannel('signalling')
-	await createLocalUserStream(localStreamSettings)
+	await createLocalUserStream()
 	initializeSignallingChannel()
-	createCallInput.value = callId
 
 	socket.emit('join', callId)
 
@@ -374,8 +397,7 @@ const createCall = async () => {
  * Answers a call created by another user
  */
 const answerCall = async () => {
-	const callId = answerCallInput.value
-	await createLocalUserStream(localStreamSettings)
+	await createLocalUserStream()
 
 	peer.addEventListener('datachannel', e => {
 		signallingChannel = e.channel
@@ -403,35 +425,8 @@ const answerCall = async () => {
 socket.on('receive-candidate', candidate => peer.addIceCandidate(candidate))
 
 /**
- * Copies the call ID to the clipboard
- * @param {Object} event The click event on the 'Create a call' input
- * @param {Object} event.target
- * @param {string} event.target.value
- */
-const copyToClipboard = async ({ target: { value } }) => {
-	if (!value) return
-
-	const { state } = await navigator.permissions.query({
-		name: 'clipboard-write',
-	})
-
-	if (state !== 'granted') return
-
-	await navigator.clipboard.writeText(value)
-
-	clipboardPopup.classList.add('active')
-}
-
-/**
- * Removes the popup that indicated the ID has been copied
- */
-const removePopup = () => {
-	if (!clipboardPopup.classList.contains('active')) return
-	setTimeout(() => clipboardPopup.classList.remove('active'), 1000)
-}
-
-/**
- * Handles renegotiation
+ * Handles renegotiation between the peers through the signalling channel
+ * after the socket.io connection is shut down
  */
 const renegotiate = async () => {
 	if (!signallingChannel || signallingChannel?.readyState !== 'open') return
@@ -455,18 +450,18 @@ document
 	.querySelectorAll('button')
 	.forEach(btn => btn.addEventListener('click', e => e.target.blur()))
 
-document.addEventListener('fullscreenchange', e => {
+document.addEventListener('fullscreenchange', () => {
 	if (!document.fullscreenElement)
 		fullscreenToggles.forEach(toggle => toggle.classList.remove('active'))
 })
 
-createCallBtn.addEventListener('click', createCall)
-answerCallBtn.addEventListener('click', answerCall)
-
-createCallInput.addEventListener('click', copyToClipboard)
-
-clipboardPopup.addEventListener('transitionend', removePopup)
-
 peer.addEventListener('negotiationneeded', renegotiate)
 peer.addEventListener('track', handleRemoteTrack)
 peer.addEventListener('connectionstatechange', disconnect)
+
+// Initial socket.io interactions to start a call
+socket.on('connect', () => {
+	console.log('connected')
+	socket.emit('check-for-call', callId)
+	socket.on('check-result', result => (result ? answerCall() : createCall()))
+})
