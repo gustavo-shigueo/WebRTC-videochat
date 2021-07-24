@@ -45,11 +45,12 @@ body {
 	aspect-ratio: 16 / 9;
 	position: relative;
 	box-sizing: border-box;
+	background-color: #000;
 }
 
 .video-container::after {
 	content: attr(aria-label);
-	background-color: var(--color-neutral-dark);
+	background-color: var(--color-neutral-dark-1);
 	color: var(--color-neutral-light);
 
 	position: absolute;
@@ -177,13 +178,18 @@ button:disabled {
 video {
 	width: 100%;
 	height: 100%;
-	object-fit: cover;
+	object-fit: contain;
+}
+
+.client [data-user-stream] {
+	transform: rotateY(180deg)
 }
 
 [data-display-stream] {
 	width: 100%;
 	height: auto;
 	object-fit: contain;
+	transform: rotateY(0);
 }
 
 ::-webkit-media-controls {
