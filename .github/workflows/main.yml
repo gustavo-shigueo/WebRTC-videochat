@@ -1,0 +1,33 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the main branch
+  push:
+    branches: [ main ]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps: 
+    - name: deploy
+      run: | 
+        git add .
+        git config --local user.email "gustavo.gsmn@gmail.com"
+        git config --local user.name "gustavo-shigueo"
+
+        git commit -a -m "Auto deploy"
+
+        git remote set-url origin "$(git config --get remote.origin.url | sed 's#http.*com/#git@github.com:#g')"
+        
+        eval `ssh-agent -t 60 -s`
+        echo "$GUSTAVO_SHIGUEO_DEPLOY_KEY" | ssh-add -
+        mkdir -p ~/.ssh/
+        ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+        git subtree push --prefix client origin gh-pages
+        git subtree push --prefix server origin socket-server
+        ssh-agent -k
