@@ -3,7 +3,7 @@ const httpServer = require('http').createServer((req, res) => {
 })
 const io = require('socket.io')(httpServer, {
 	cors: {
-		origin: `${process.env.GITPOD_WORKSPACE_URL.replace('//', '//5500-')}`,
+		origin: 'https://gustavo-shigueo.github.io',
 		methods: ['GET', 'POST'],
 	},
 })

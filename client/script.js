@@ -10,11 +10,11 @@ const servers = {
 const peer = new RTCPeerConnection(servers)
 const socket = io(`wss://${location.host.replace('5500', '3001')}`)
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-const callId = window.location.search
+const callId = location.search
 const callIdRegExp =
 	/^\?callId=[0-9a-f]{8}\-[0-9a-f]{4}\-4[0-9a-f]{3}\-[89ab][0-9a-f]{3}\-[0-9a-f]{12}$/
 
-if (!callId.match(callIdRegExp)) window.location.href = `/?callId=${uuidV4()}`
+if (!callId.match(callIdRegExp)) location.search = `callId=${uuidV4()}`
 
 let localUserStream = new MediaStream()
 let localDisplayStream = new MediaStream()
@@ -88,7 +88,7 @@ const handleRemoteTrack = e => {
  */
 const disconnect = e => {
 	if (!e || (e && peer.connectionState === 'disconnected'))
-		location.href = `https://${location.host}`
+		location.href = 'https://gustavo-shigueo.github.io/WebRTC-videochat'
 }
 
 /**
@@ -369,7 +369,7 @@ const hangup = () => {
 	signallingChannel.send(JSON.stringify({ action: 'disconnect' }))
 	peer.close()
 	disconnect()
-	location.href = `https://${location.host}`
+	location.href = 'https://gustavo-shigueo.github.io/WebRTC-videochat'
 }
 
 /**
