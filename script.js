@@ -8,7 +8,7 @@ const servers = {
 
 // Global State
 const peer = new RTCPeerConnection(servers)
-const socket = io(`wss://${location.host.replace('5500', '3001')}`)
+const socket = io('wss://webrtc-videochat-socket-server.herokuapp.com')
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const callId = location.search
 const callIdRegExp =
