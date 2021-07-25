@@ -12,8 +12,11 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps: 
+    steps:
+    - uses: actions/checkout@v1
     - name: deploy
+      env:
+        GHA_DEPLOY_KEY: ${{ secrets.GUSTAVO_SHIGUEO_DEPLOY_KEY }}
       run: | 
         git add .
         git config --local user.email "gustavo.gsmn@gmail.com"
