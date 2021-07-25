@@ -12,22 +12,27 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps: 
+    steps:
+    - uses: actions/checkout@v1
     - name: deploy
+      env:
+        GHA_DEPLOY_KEY: ${{ secrets.GUSTAVO_SHIGUEO_DEPLOY_KEY }}
       run: | 
-        git add .
-        git config --local user.email "gustavo.gsmn@gmail.com"
-        git config --local user.name "gustavo-shigueo"
+        if ! git diff --no-ext-diff --quiet --exit-code; then
+          git add .
+          git config --local user.email "gustavo.gsmn@gmail.com"
+          git config --local user.name "gustavo-shigueo"
 
-        git commit -a -m "Auto deploy"
+          git commit -a -m "Auto deploy"
 
-        git remote set-url origin "$(git config --get remote.origin.url | sed 's#http.*com/#git@github.com:#g')"
+          git remote set-url origin "$(git config --get remote.origin.url | sed 's#http.*com/#git@github.com:#g')"
         
-        eval `ssh-agent -t 60 -s`
-        echo "$GUSTAVO_SHIGUEO_DEPLOY_KEY" | ssh-add -
-        mkdir -p ~/.ssh/
-        ssh-keyscan github.com >> ~/.ssh/known_hosts
+          eval `ssh-agent -t 60 -s`
+          echo "$GUSTAVO_SHIGUEO_DEPLOY_KEY" | ssh-add -
+          mkdir -p ~/.ssh/
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
 
-        git subtree push --prefix client origin gh-pages
-        git subtree push --prefix server origin socket-server
-        ssh-agent -k
+          git subtree push --prefix client origin gh-pages
+          git subtree push --prefix server origin socket-server
+          ssh-agent -k
+        fi
