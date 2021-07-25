@@ -72,4 +72,4 @@ io.on('connection', socket => {
 	socket.onAny((event, ...args) => console.log({ event, args }))
 })
 
-httpServer.listen(3001)
+httpServer.listen(80)
