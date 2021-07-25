@@ -23,7 +23,6 @@ let remoteDisplayStreamID = ''
 let isSharing = false
 
 /**
- * Test
  * @type {RTCDataChannel}
  */
 let signallingChannel = null
