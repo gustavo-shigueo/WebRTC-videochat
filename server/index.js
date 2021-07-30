@@ -3,7 +3,10 @@ const httpServer = require('http').createServer((req, res) => {
 })
 const io = require('socket.io')(httpServer, {
 	cors: {
-		origin: 'https://gustavo-shigueo.github.io',
+		origin: `${
+			process?.env?.GITPOD_WORKSPACE_URL?.replace('//', '//5500-') ??
+			'https://gustavo-shigueo.github.io'
+		}`,
 		methods: ['GET', 'POST'],
 	},
 })
@@ -59,9 +62,7 @@ io.on('connection', socket => {
 	})
 
 	socket.on('send-candidate', (candidate, callId) => {
-		socket.broadcast
-			.to(callId)
-			.emit('receive-candidate', candidate)
+		socket.broadcast.to(callId).emit('receive-candidate', candidate)
 	})
 
 	socket.on('remove-call', callId => {
@@ -72,4 +73,4 @@ io.on('connection', socket => {
 	socket.onAny((event, ...args) => console.log({ event, args }))
 })
 
-httpServer.listen(process.env.PORT)
+httpServer.listen(process.env.PORT ?? 3001)

@@ -6,9 +6,13 @@ const servers = {
 	],
 }
 
+const socketServerURL = location.host.match(/gustavo-shigueo.github.io/)
+	? 'wss://webrtc-videochat-socket-server.herokuapp.com'
+	: `wss://${location.host.replace('5500', '3001')}`
+
 // Global State
 const peer = new RTCPeerConnection(servers)
-const socket = io('wss://webrtc-videochat-socket-server.herokuapp.com')
+const socket = io(socketServerURL)
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const callId = location.search
 const callIdRegExp =
@@ -45,11 +49,11 @@ const fullscreenToggles = document.querySelectorAll(
 
 localUserVideo.muted = true
 localDisplayVideo.muted = true
-localUserVideo.parentElement.style.display = 'none'
-localDisplayVideo.parentElement.style.display = 'none'
+localUserVideo.parentElement.classList.add('hidden')
+localDisplayVideo.parentElement.classList.add('hidden')
 
-remoteUserVideo.parentElement.style.display = 'none'
-remoteDisplayVideo.parentElement.style.display = 'none'
+remoteUserVideo.parentElement.classList.add('hidden')
+remoteDisplayVideo.parentElement.classList.add('hidden')
 
 /**
  * A new remote track has benn added
@@ -60,35 +64,34 @@ const handleRemoteTrack = e => {
 
 	// The stream being handled is the screen share stream
 	if (stream.id === remoteDisplayStreamID) {
-		stream.addEventListener(
-			'removetrack',
-			() => (remoteDisplayVideo.parentElement.style.display = 'none')
-		)
+		stream.addEventListener('removetrack', () => {
+			remoteDisplayVideo.parentElement.classList.add('hidden')
+		})
+
 		remoteDisplayVideo.srcObject = stream
-		remoteDisplayVideo.parentElement.removeAttribute('style')
+		remoteDisplayVideo.parentElement.classList.remove('hidden')
 		return
 	}
 
 	// The stream being handled is the user stream
-	stream.addEventListener('addtrack', e => {
-		if (e.track.kind === 'video')
-			remoteUserVideo.parentElement.removeAttribute('style')
-	})
-	stream.addEventListener('removetrack', e => {
-		if (e.track.kind === 'video')
-			remoteUserVideo.parentElement.style.display = 'none'
+	stream.addEventListener('removetrack', ({ track: { kind } }) => {
+		if (kind === 'video') remoteUserVideo.parentElement.classList.add('hidden')
 	})
 
 	remoteUserVideo.srcObject = stream
+
+	if (stream.getVideoTracks().length > 0) {
+		remoteUserVideo.parentElement.classList.remove('hidden')
+	}
 }
 
 /**
  * When the peer connection is closed, refresh the page
- * @param {Event} [e]
+ * @param {Event} e
  */
 const disconnect = e => {
 	if (!e || (e && peer.connectionState === 'disconnected'))
-		location.href = 'https://gustavo-shigueo.github.io/WebRTC-videochat'
+		location.href = `https://${location.host}`
 }
 
 /**
@@ -170,7 +173,7 @@ const initializeSignallingChannel = () => {
  */
 const createLocalUserStream = async () => {
 	// Webcam is off, so the webcam feed is hidden
-	localUserVideo.parentElement.style.display = 'none'
+	localUserVideo.parentElement.classList.add('hidden')
 
 	// Creates a MediaStream
 	const stream = await navigator.mediaDevices.getUserMedia({
@@ -209,13 +212,28 @@ const updateLocalDisplayStream = async sharing => {
 		})
 		.forEach(sender => peer.removeTrack(sender))
 
+	// Removes all of the old tracks from the local MediaStream
+	// and disconnects it from its source to remove the browser's
+	// screen share warning
+	localDisplayStream.getTracks().forEach(track => {
+		track.stop()
+		localDisplayStream.removeTrack(track)
+	})
+
 	// Hides the screen share preview when the screen is not being shared
-	localDisplayVideo.parentElement.style.display = sharing ? 'flex' : 'none'
+	localDisplayVideo.parentElement.classList.toggle('hidden', !sharing)
 
 	if (!sharing) {
 		localDisplayVideo.srcObject = null
 		return
 	}
+
+	/**
+	 * The process below is done to preserve the local MediaStream's ID
+	 * This is important because the signalling channel sends the ID
+	 * to help the remote peer with separating the user stream (webcam + mic)
+	 * and the display stream (screen sharing)
+	 */
 
 	/**
 	 * Initializes a new MediaStream object for the screen share
@@ -225,18 +243,6 @@ const updateLocalDisplayStream = async sharing => {
 		audio: true,
 		video: true,
 	})
-
-	/**
-	 * The process below is done to preserve the local MediaStream's ID
-	 * This is important because the signalling channel sends the ID
-	 * to help the remote peer with separating the user stream (webcam + mic)
-	 * and the display stream (screen sharing)
-	 */
-
-	// Removes all of the old tracks from the local MediaStream
-	localDisplayStream
-		.getTracks()
-		.forEach(track => localDisplayStream.removeTrack(track))
 
 	// Adds all the tracks from the new MediaStream into the local
 	// MediaStream object
@@ -291,7 +297,7 @@ const toggleCameraOrMic = async (e, device) => {
 		localUserStream.removeTrack(track)
 
 		// Hides the webcam feed and returns
-		localUserVideo.parentElement.style.display = 'none'
+		localUserVideo.parentElement.classList.add('hidden')
 		return
 	}
 
@@ -305,7 +311,7 @@ const toggleCameraOrMic = async (e, device) => {
 	peer.addTrack(videoTrack, localUserStream)
 
 	// Displays the webcam feed
-	localUserVideo.parentElement.style.display = 'flex'
+	localUserVideo.parentElement.classList.remove('hidden')
 }
 
 /**
@@ -344,21 +350,36 @@ const toggleSharing = async () => {
  * @param {MouseEvent} e The click event
  */
 const toggleFullscreen = async e => {
+	/**
+	 * @type {HTMLElement}
+	 */
 	const video = e.target.closest('.video-container').querySelector('video')
 	const active = e.target.classList.toggle('active')
+	video.parentElement.classList.toggle('fullscreen')
 
 	if (active) {
-		document.querySelectorAll('video').forEach(e => e.parentElement.style.visibility = 'hidden')
+		document
+			.querySelectorAll('video')
+			.forEach(({ parentElement: p }) => p.classList.toggle('hidden', !p.classList.contains('fullscreen')))
 		await document.body.requestFullscreen()
-		video.parentElement.style = 'position: fixed; inset: 0px; height: 100vh'
+
+		if (video.hasAttribute('data-user-stream')) {
+			const cornerVideo = video.parentElement.classList.contains('client')
+				? remoteUserVideo
+				: localUserVideo
+
+			cornerVideo.parentElement.classList.add('corner')
+			cornerVideo.parentElement.classList.remove('hidden')
+		}
 		return
 	}
 
 	document
 		.querySelectorAll('video')
-		.forEach(e => (e.parentElement.style.visibility = ''))
-	e.target.removeAttribute('style')
-	video.parentElement.style = 'display: flex;'
+		.forEach(e => {
+			if (e.srcObject?.getVideoTracks()?.length === 0 || !e.srcObject) return
+			e.parentElement.classList.remove('hidden', 'corner')
+		})
 	await document.exitFullscreen()
 }
 
@@ -455,14 +476,12 @@ document
 
 document.addEventListener('fullscreenchange', () => {
 	if (document.fullscreenElement) return
-	document
-		.querySelectorAll('video')
-		.forEach(e => {
-			e.parentElement.style.visibility = ''
-			e.parentElement.style.position = ''
-			e.parentElement.style.inset = ''
-			e.parentElement.style.height = ''
-		})
+	document.querySelectorAll('video').forEach(e => {
+		/**
+		 * @type {CSSStyleDeclaration}
+		 */
+		e.parentElement.classList.remove('corner', 'fullscreen')
+	})
 	document
 		.querySelectorAll('[data-function="fullscreen"]')
 		.forEach(e => e.removeAttribute('style'))
@@ -475,7 +494,6 @@ peer.addEventListener('connectionstatechange', disconnect)
 
 // Initial socket.io interactions to start a call
 socket.on('connect', () => {
-	console.log('connected')
 	socket.emit('check-for-call', callId)
 	socket.on('check-result', result => (result ? answerCall() : createCall()))
 })
