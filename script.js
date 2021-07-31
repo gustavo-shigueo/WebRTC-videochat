@@ -56,7 +56,7 @@ const controls = document.querySelectorAll('.controls button')
 const [cameraBtn, muteBtn, shareBtn, hangupBtn] = controls
 const fullscreenToggles = document.querySelectorAll('[data-function="fullscreen"]')
 
-// This function is declared at the top because it's called by handleSignallingMessage
+// This function is declared at the top because it's called by line 104
 /**
  * When the peer connection is closed, refresh the page
  * @param {Event} e
