@@ -63,7 +63,7 @@ const fullscreenToggles = document.querySelectorAll('[data-function="fullscreen"
  */
 const refreshPage = e => {
 	if (e && peer.connectionState !== 'disconnected') return
-	location.href = `https://${location.host}`
+	location.href = `https://${location.host}${location.pathname}`
 }
 
 // ? Signalling channel event handlers
