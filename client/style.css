@@ -134,9 +134,13 @@ button::after {
 	transition: opacity 100ms ease;
 }
 
-button:not(:disabled):focus::after,
 button:not(:disabled):hover::after {
 	opacity: 1;
+}
+
+button:not(:disabled):focus::after {
+	opacity: 1;
+	animation: fadeOut 300ms ease-in-out 1.25s forwards;
 }
 
 button:not(.active) {
@@ -182,7 +186,7 @@ video {
 }
 
 .client [data-user-stream] {
-	transform: rotateY(180deg)
+	transform: rotateY(180deg);
 }
 
 [data-display-stream] {
@@ -211,6 +215,7 @@ video {
 	width: 25vw;
 	right: 2rem;
 	background: transparent;
+	z-index: 1;
 }
 
 .corner::after {
@@ -226,5 +231,17 @@ video {
 }
 
 @media (max-width: 1100px) {
-	.video-grid { grid-template-columns: 1fr; }
+	.video-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+@keyframes fadeOut {
+	from {
+		opacity: 1;
+	}
+
+	to {
+		opacity: 0;
+	}
 }

@@ -1,3 +1,25 @@
+/**
+ * @author Gustavo Shigueo<gustavo.gsmn@gmail.com>
+ *
+ * ======================= TABLE OF CONTENTS ======================= *
+ *                                                                   *
+ *    Global State.......................................line 21     *
+ *    DOM Elements.......................................line 50     *
+ *    Signalling channel event handlers..................line 69     *
+ *    Managing local MediaStream objects.................line 152    *
+ *    Remote MediaStreamTrackEvent handlers..............line 242    *
+ *    Call negotiation...................................line 295    *
+ *    Local call controls................................line 346    *
+ *    UI changes.........................................line 450    *
+ *    UI eventListeners..................................line 523    *
+ *    Document eventListeners............................line 532    *
+ *    RTCPeerConnection eventListeners...................line 537    *
+ *    Initial socket.io interactions.....................line 543    *
+ *                                                                   *
+ * ================================================================= *
+ */
+
+// ? Global State
 const servers = {
 	iceServers: [
 		{
@@ -5,94 +27,46 @@ const servers = {
 		},
 	],
 }
-
-const socketServerURL = location.host.match(/gustavo-shigueo.github.io/)
+const peer = new RTCPeerConnection(servers)
+const socketServerURL = location.host.match(/gustavo-shigueo\.github\.io/)
 	? 'wss://webrtc-videochat-socket-server.herokuapp.com'
 	: `wss://${location.host.replace('5500', '3001')}`
 
-// Global State
-const peer = new RTCPeerConnection(servers)
+const localUserStream = new MediaStream()
+const localDisplayStream = new MediaStream()
 const socket = io(socketServerURL)
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const callId = location.search
-const callIdRegExp =
-	/^\?callId=[0-9a-f]{8}\-[0-9a-f]{4}\-4[0-9a-f]{3}\-[89ab][0-9a-f]{3}\-[0-9a-f]{12}$/
+const regExp = /^\?callId=[0-9a-f]{8}\-[0-9a-f]{4}\-4[0-9a-f]{3}\-[89ab][0-9a-f]{3}\-[0-9a-f]{12}$/
 
-if (!callId.match(callIdRegExp)) location.search = `callId=${uuidV4()}`
+// Ensures the call has an ID
+if (!callId.match(regExp)) location.search = `callId=${uuidV4()}`
 
-let localUserStream = new MediaStream()
-let localDisplayStream = new MediaStream()
+/** @type {RTCDataChannel} */
+let signallingChannel = null
 let remoteUserStreamID = ''
 let remoteDisplayStreamID = ''
 let isSharing = false
 
-/**
- * @type {RTCDataChannel}
- */
-let signallingChannel = null
-
-// DOM Elements
-const localVideoGroup = document.querySelector('.client').parentElement
+// ? DOM Elements
 const localUserVideo = document.querySelector('.client [data-user-stream]')
-const localDisplayVideo = document.querySelector(
-	'.client [data-display-stream]'
-)
+const localDisplayVideo = document.querySelector('.client [data-display-stream]')
 const remoteUserVideo = document.querySelector('.remote [data-user-stream]')
-const remoteDisplayVideo = document.querySelector(
-	'.remote [data-display-stream]'
-)
+const remoteDisplayVideo = document.querySelector('.remote [data-display-stream]')
 const controls = document.querySelectorAll('.controls button')
 const [cameraBtn, muteBtn, shareBtn, hangupBtn] = controls
-const fullscreenToggles = document.querySelectorAll(
-	'[data-function="fullscreen"]'
-)
+const fullscreenToggles = document.querySelectorAll('[data-function="fullscreen"]')
 
-localUserVideo.muted = true
-localDisplayVideo.muted = true
-localUserVideo.parentElement.classList.add('hidden')
-localDisplayVideo.parentElement.classList.add('hidden')
-
-remoteUserVideo.parentElement.classList.add('hidden')
-remoteDisplayVideo.parentElement.classList.add('hidden')
-
-/**
- * A new remote track has benn added
- * @param {RTCTrackEvent} e RTCTrackEventObject: Created when the remote user calls addTrack on the RTCPeerConnection
- */
-const handleRemoteTrack = e => {
-	const [stream] = e.streams
-
-	// The stream being handled is the screen share stream
-	if (stream.id === remoteDisplayStreamID) {
-		stream.addEventListener('removetrack', () => {
-			remoteDisplayVideo.parentElement.classList.add('hidden')
-		})
-
-		remoteDisplayVideo.srcObject = stream
-		remoteDisplayVideo.parentElement.classList.remove('hidden')
-		return
-	}
-
-	// The stream being handled is the user stream
-	stream.addEventListener('removetrack', ({ track: { kind } }) => {
-		if (kind === 'video') remoteUserVideo.parentElement.classList.add('hidden')
-	})
-
-	remoteUserVideo.srcObject = stream
-
-	if (stream.getVideoTracks().length > 0) {
-		remoteUserVideo.parentElement.classList.remove('hidden')
-	}
-}
-
+// This function is declared at the top because it's called by handleSignallingMessage
 /**
  * When the peer connection is closed, refresh the page
  * @param {Event} e
  */
-const disconnect = e => {
-	if (!e || (e && peer.connectionState === 'disconnected'))
-		location.href = `https://${location.host}`
+const refreshPage = e => {
+	if (e && peer.connectionState !== 'disconnected') return
+	location.href = `https://${location.host}`
 }
+
+// ? Signalling channel event handlers
 
 /**
  * Handles the initial connection of the data channel that will handle renegotiations
@@ -115,56 +89,67 @@ const signallingChannelConnection = () => {
 }
 
 /**
+ * Receives a message through the signalling server and decides what to do with it
+ * @param {MessageEvent<RTCDataChannel>} e
+ */
+const handleSignallingMessage = async e => {
+	const {
+		sdp = null,
+		candidate = null,
+		userStreamID = '',
+		displayStreamID = '',
+		action,
+	} = JSON.parse(e.data)
+
+	if (action === 'disconnect') return refreshPage()
+
+	if (userStreamID && displayStreamID) {
+		remoteUserStreamID = userStreamID
+		remoteDisplayStreamID = displayStreamID
+		return
+	}
+
+	if (!sdp && !candidate) return
+
+	try {
+		if (!sdp) return await peer.addIceCandidate(new RTCIceCandidate(candidate))
+
+		const offerDescription = new RTCSessionDescription(sdp)
+
+		if (offerDescription.type !== 'offer') return await peer.setRemoteDescription(offerDescription)
+
+		await peer.setRemoteDescription(offerDescription)
+		const answerDescription = await peer.createAnswer()
+
+		await peer.setLocalDescription(answerDescription)
+		signallingChannel.send(JSON.stringify({ sdp: peer.localDescription }))
+
+		return
+	} catch (error) {
+		console.log(error)
+	}
+}
+
+/**
  * Sets up the eventListeners on the signalling channel
  */
 const initializeSignallingChannel = () => {
-	signallingChannel.addEventListener('open', () =>
-		signallingChannelConnection()
-	)
-
-	signallingChannel.onmessage = async e => {
-		await sleep(0)
-		const {
-			sdp = null,
-			candidate = null,
-			userStreamID = '',
-			displayStreamID = '',
-			action,
-		} = JSON.parse(e.data)
-
-		if (action === 'disconnect') return disconnect()
-
-		if (userStreamID && displayStreamID) {
-			remoteUserStreamID = userStreamID
-			remoteDisplayStreamID = displayStreamID
-			return
-		}
-
-		if (!sdp && !candidate) return
-
-		try {
-			if (sdp) {
-				const offerDescription = new RTCSessionDescription(sdp)
-
-				if (offerDescription.type !== 'offer') {
-					return await peer.setRemoteDescription(offerDescription)
-				}
-
-				await peer.setRemoteDescription(offerDescription)
-				const answerDescription = await peer.createAnswer()
-
-				await peer.setLocalDescription(answerDescription)
-				signallingChannel.send(JSON.stringify({ sdp: peer.localDescription }))
-
-				return
-			}
-
-			await peer.addIceCandidate(new RTCIceCandidate(candidate))
-		} catch (error) {
-			console.log(error)
-		}
-	}
+	signallingChannel.addEventListener('open', signallingChannelConnection)
+	signallingChannel.addEventListener('message', handleSignallingMessage)
 }
+
+/**
+ * Handles renegotiation between the peers through the signalling channel
+ * after the socket.io connection is shut down
+ */
+const renegotiate = async () => {
+	if (!signallingChannel || signallingChannel?.readyState !== 'open') return
+	const offer = await peer.createOffer()
+	await peer.setLocalDescription(offer)
+	signallingChannel.send(JSON.stringify({ sdp: peer.localDescription }))
+}
+
+// ? Managing local MediaStream objects
 
 /**
  * Creates the MediaStream object that contains the local user's
@@ -198,17 +183,14 @@ const createLocalUserStream = async () => {
 /**
  * Updates the MediaStream object that contains the local user's
  * screen share
- * @param {Object} settings Wether or not the local user wants to share their screen
- * @param {boolean} settings.sharing
+ * @param {boolean} sharing Wether or not the local user wants to share their screen
  */
 const updateLocalDisplayStream = async sharing => {
 	// Removes all the screen sharing related tracks from the peer connection
 	peer
 		.getSenders()
 		.filter(({ track }) => {
-			return (
-				track?.source === 'Display video' || track?.source === 'Display audio'
-			)
+			return track?.source === 'Display video' || track?.source === 'Display audio'
 		})
 		.forEach(sender => peer.removeTrack(sender))
 
@@ -225,7 +207,10 @@ const updateLocalDisplayStream = async sharing => {
 
 	if (!sharing) {
 		localDisplayVideo.srcObject = null
-		return
+
+		// Exit fullscreen if necessary
+		if (!localDisplayVideo.parentElement.classList.contains('fullscreen')) return
+		return await document.exitFullscreen()
 	}
 
 	/**
@@ -235,10 +220,7 @@ const updateLocalDisplayStream = async sharing => {
 	 * and the display stream (screen sharing)
 	 */
 
-	/**
-	 * Initializes a new MediaStream object for the screen share
-	 * @type {MediaStream}
-	 */
+	/** @type {MediaStream} */
 	const stream = await navigator.mediaDevices.getDisplayMedia({
 		audio: true,
 		video: true,
@@ -256,6 +238,112 @@ const updateLocalDisplayStream = async sharing => {
 		peer.addTrack(track, localDisplayStream)
 	})
 }
+
+// ? Remote MediaStreamTrackEvent handlers
+
+/**
+ * Makes changes to the UI when the remote peer disbales one of their video tracks
+ * @param {'user'|'display'} streamName
+ * @param {'video'|'audio'} kind
+ */
+const removeRemoteTrack = async (streamName, kind) => {
+	/**
+	 * Get references to the DOM Elements that will change
+	 */
+	const video = streamName === 'user' ? remoteUserVideo : remoteDisplayVideo
+	const container = video.parentElement
+
+	/**
+	 * Only change if handling a video track
+	 */
+	if (kind !== 'video') return
+
+	/**
+	 * Hide the video feed and if needed, exit fullscree
+	 */
+	container.classList.add('hidden')
+
+	if (!container.classList.contains('fullscreen')) return
+	await document.exitFullscreen()
+}
+
+/**
+ * A new remote track has benn added
+ * @param {RTCTrackEvent} e RTCTrackEventObject: Created when the remote user calls addTrack on the RTCPeerConnection
+ */
+const handleRemoteTrack = e => {
+	const [stream] = e.streams
+
+	// The stream being handled is the screen share stream
+	if (stream.id === remoteDisplayStreamID) {
+		stream.addEventListener('removetrack', () => removeRemoteTrack('display', 'video'))
+
+		remoteDisplayVideo.srcObject = stream
+		remoteDisplayVideo.parentElement.classList.remove('hidden')
+		return
+	}
+
+	// The stream being handled is the user stream
+	stream.addEventListener('removetrack', e => removeRemoteTrack('user', e.track.kind))
+
+	remoteUserVideo.srcObject = stream
+
+	if (stream.getVideoTracks().length === 0) return
+	remoteUserVideo.parentElement.classList.remove('hidden')
+}
+
+// ? Call negotiation
+
+/**
+ * Creates a call
+ */
+const createCall = async () => {
+	signallingChannel = peer.createDataChannel('signalling')
+	await createLocalUserStream()
+	initializeSignallingChannel()
+
+	socket.emit('join', callId)
+
+	peer.onicecandidate = e => {
+		socket.emit('send-local-description-offer', peer.localDescription, callId)
+		e.candidate && socket.emit('send-candidate', e.candidate, callId)
+	}
+
+	const offerDescription = await peer.createOffer()
+	await peer.setLocalDescription(offerDescription)
+
+	socket.on('receive-remote-description-answer', async answer => {
+		if (peer.remoteDescription || peer.signalingState === 'stable') return
+		await peer.setRemoteDescription(answer)
+	})
+}
+
+/**
+ * Answers a call created by another user
+ */
+const answerCall = async () => {
+	await createLocalUserStream()
+
+	peer.addEventListener('datachannel', e => {
+		signallingChannel = e.channel
+		initializeSignallingChannel()
+	})
+
+	socket.emit('answer-call', callId)
+	socket.on('receive-remote-description-offer', async offer => {
+		peer.onicecandidate = e => {
+			socket.emit('send-local-description-answer', peer.localDescription, callId)
+			e.candidate && socket.emit('send-candidate', e.candidate, callId)
+		}
+
+		await peer.setRemoteDescription(offer)
+
+		const answerDescription = await peer.createAnswer()
+		await peer.setLocalDescription(answerDescription)
+	})
+}
+
+// Local call controls
 
 /**
  * Toggles the local user's webcam or microphone when the respective
@@ -275,9 +363,7 @@ const toggleCameraOrMic = async (e, device) => {
 
 	// Gets the track that will be toggled
 	const [track] =
-		device === 'audio'
-			? localUserStream.getAudioTracks()
-			: localUserStream.getVideoTracks()
+		device === 'audio' ? localUserStream.getAudioTracks() : localUserStream.getVideoTracks()
 
 	// If the track exists
 	if (track) {
@@ -289,21 +375,28 @@ const toggleCameraOrMic = async (e, device) => {
 
 		// Remove the track from both the local MediaStream and the peer connection
 		track.stop()
-		const [sender] = peer
-			.getSenders()
-			.filter(sender => sender?.track?.id === track?.id)
+		const [sender] = peer.getSenders().filter(sender => sender?.track?.id === track?.id)
 		peer.removeTrack(sender)
 
 		localUserStream.removeTrack(track)
 
 		// Hides the webcam feed and returns
 		localUserVideo.parentElement.classList.add('hidden')
+		localUserVideo.parentElement.classList.remove('cover')
+
+		// Exit fullscreen if necessary
+		if (!localUserVideo.parentElement.classList.contains('fullscreen')) return
+		await document.exitFullscreen()
+
 		return
 	}
 
 	// Creates a new video track from the webcam
 	const stream = await navigator.mediaDevices.getUserMedia({ video: true })
 	const [videoTrack] = stream.getVideoTracks()
+	const { aspectRatio } = videoTrack.getSettings()
+
+	localUserVideo.parentElement.classList.toggle('cover', aspectRatio >= 1.25)
 	videoTrack.source = 'User video'
 
 	// Adds the new track to the local MediaStream and to the peer connection
@@ -346,154 +439,112 @@ const toggleSharing = async () => {
 }
 
 /**
- * Toggles a specific video element's fullscreen mode
- * @param {MouseEvent} e The click event
- */
-const toggleFullscreen = async e => {
-	/**
-	 * @type {HTMLElement}
-	 */
-	const video = e.target.closest('.video-container').querySelector('video')
-	const active = e.target.classList.toggle('active')
-	video.parentElement.classList.toggle('fullscreen')
-
-	if (active) {
-		document
-			.querySelectorAll('video')
-			.forEach(({ parentElement: p }) => p.classList.toggle('hidden', !p.classList.contains('fullscreen')))
-		await document.body.requestFullscreen()
-
-		if (video.hasAttribute('data-user-stream')) {
-			const cornerVideo = video.parentElement.classList.contains('client')
-				? remoteUserVideo
-				: localUserVideo
-
-			cornerVideo.parentElement.classList.add('corner')
-			cornerVideo.parentElement.classList.remove('hidden')
-		}
-		return
-	}
-
-	document
-		.querySelectorAll('video')
-		.forEach(e => {
-			if (e.srcObject?.getVideoTracks()?.length === 0 || !e.srcObject) return
-			e.parentElement.classList.remove('hidden', 'corner')
-		})
-	await document.exitFullscreen()
-}
-
-/**
  * Leaves the call
  */
 const hangup = () => {
 	signallingChannel.send(JSON.stringify({ action: 'disconnect' }))
 	peer.close()
-	disconnect()
-	location.href = 'https://gustavo-shigueo.github.io/WebRTC-videochat'
+	refreshPage()
+}
+
+// ? UI changes
+
+/**
+ * Decides wether the video's object-fit should be contain or cover
+ * @param {Event} e
+ */
+const setObjectFit = e => {
+	/** @type {HTMLVideoElement} */
+	const element = e.target
+
+	/** @type {MediaStreamTrack[]} */
+	const [track] = element.srcObject?.getVideoTracks()
+
+	const { aspectRatio } = track?.getSettings?.() ?? { aspectRatio: 0 }
+
+	element.parentElement.classList.toggle('cover', aspectRatio >= 1.25)
 }
 
 /**
- * Creates a call
+ * Makes UI changes when exiting fullscreen mode
  */
-const createCall = async () => {
-	signallingChannel = peer.createDataChannel('signalling')
-	await createLocalUserStream()
-	initializeSignallingChannel()
+const exitFullscreen = () => {
+	if (document.fullscreenElement) return
 
-	socket.emit('join', callId)
+	document.querySelectorAll('video').forEach(e => {
+		e.parentElement.classList.remove('corner', 'fullscreen')
+	})
 
-	peer.onicecandidate = e => {
-		socket.emit('send-local-description-offer', peer.localDescription, callId)
-		e.candidate && socket.emit('send-candidate', e.candidate, callId)
+	fullscreenToggles.forEach(toggle => toggle.classList.remove('active'))
+}
+
+/**
+ * Toggles a specific video element's fullscreen mode
+ * @param {MouseEvent} e The click event
+ */
+const toggleFullscreen = async e => {
+	/** @type {HTMLElement} */
+	const video = e.target.closest('.video-container').querySelector('video')
+	const active = e.target.classList.toggle('active')
+	video.parentElement.classList.toggle('fullscreen')
+
+	if (!active) {
+		document.querySelectorAll('video').forEach(e => {
+			if (e.srcObject?.getVideoTracks()?.length === 0 || !e.srcObject) return
+			e.parentElement.classList.remove('hidden')
+		})
+
+		return await document.exitFullscreen()
 	}
 
-	const offerDescription = await peer.createOffer()
-	await peer.setLocalDescription(offerDescription)
+	document
+		.querySelectorAll('video')
+		.forEach(({ parentElement: p }) =>
+			p.classList.toggle('hidden', !p.classList.contains('fullscreen'))
+		)
+	await document.body.requestFullscreen()
 
-	socket.on('receive-remote-description-answer', async answer => {
-		if (peer.remoteDescription) return
-		await peer.setRemoteDescription(answer)
-	})
+	if (!video.hasAttribute('data-user-stream')) return
+
+	const cornerVideo = video.parentElement.classList.contains('client')
+		? remoteUserVideo
+		: localUserVideo
+
+	/** @type {MediaStream} */
+	const cornerStream = cornerVideo.srcObject
+	const [videoTrack] = cornerStream.getVideoTracks()
+
+	if (!videoTrack) return
+
+	cornerVideo.parentElement.classList.add('corner')
+	cornerVideo.parentElement.classList.remove('hidden')
 }
 
-/**
- * Answers a call created by another user
- */
-const answerCall = async () => {
-	await createLocalUserStream()
+// ? UI eventListeners
 
-	peer.addEventListener('datachannel', e => {
-		signallingChannel = e.channel
-		initializeSignallingChannel()
-	})
-
-	socket.emit('answer-call', callId)
-	socket.on('receive-remote-description-offer', async offer => {
-		peer.onicecandidate = e => {
-			socket.emit(
-				'send-local-description-answer',
-				peer.localDescription,
-				callId
-			)
-			e.candidate && socket.emit('send-candidate', e.candidate, callId)
-		}
-
-		await peer.setRemoteDescription(offer)
-
-		const answerDescription = await peer.createAnswer()
-		await peer.setLocalDescription(answerDescription)
-	})
-}
-
-socket.on('receive-candidate', candidate => peer.addIceCandidate(candidate))
-
-/**
- * Handles renegotiation between the peers through the signalling channel
- * after the socket.io connection is shut down
- */
-const renegotiate = async () => {
-	if (!signallingChannel || signallingChannel?.readyState !== 'open') return
-	const offer = await peer.createOffer()
-	await peer.setLocalDescription(offer)
-	signallingChannel.send(JSON.stringify({ sdp: peer.localDescription }))
-}
-
-// Setting up the event listeners
 shareBtn.addEventListener('click', toggleSharing)
-
 cameraBtn.addEventListener('click', e => toggleCameraOrMic(e, 'video'))
 muteBtn.addEventListener('click', e => toggleCameraOrMic(e, 'audio'))
 hangupBtn.addEventListener('click', hangup)
+fullscreenToggles.forEach(el => el.addEventListener('click', toggleFullscreen))
+remoteUserVideo.addEventListener('loadedmetadata', setObjectFit)
 
-fullscreenToggles.forEach(elem =>
-	elem.addEventListener('click', toggleFullscreen)
-)
+// ? Document eventListeners
 
-document
-	.querySelectorAll('button')
-	.forEach(btn => btn.addEventListener('click', e => e.target.blur()))
+document.addEventListener('fullscreenchange', exitFullscreen)
+document.addEventListener('beforeunload', hangup)
 
-document.addEventListener('fullscreenchange', () => {
-	if (document.fullscreenElement) return
-	document.querySelectorAll('video').forEach(e => {
-		/**
-		 * @type {CSSStyleDeclaration}
-		 */
-		e.parentElement.classList.remove('corner', 'fullscreen')
-	})
-	document
-		.querySelectorAll('[data-function="fullscreen"]')
-		.forEach(e => e.removeAttribute('style'))
-	fullscreenToggles.forEach(toggle => toggle.classList.remove('active'))
-})
+// ? RTCPeerConnection eventListeners
 
 peer.addEventListener('negotiationneeded', renegotiate)
 peer.addEventListener('track', handleRemoteTrack)
-peer.addEventListener('connectionstatechange', disconnect)
+peer.addEventListener('connectionstatechange', refreshPage)
 
-// Initial socket.io interactions to start a call
+// ? Initial socket.io interactions
+
 socket.on('connect', () => {
 	socket.emit('check-for-call', callId)
 	socket.on('check-result', result => (result ? answerCall() : createCall()))
 })
+
+socket.on('receive-candidate', candidate => peer.addIceCandidate(candidate))
