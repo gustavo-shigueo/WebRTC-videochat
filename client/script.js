@@ -1,25 +1,25 @@
 /**
  * @author Gustavo Shigueo<gustavo.gsmn@gmail.com>
- *
+ * NOTE Install the comment anchors extension on VSCode to navigate through the sections easily
  * ======================= TABLE OF CONTENTS ======================= *
  *                                                                   *
- *    Global State.......................................line 21     *
- *    DOM Elements.......................................line 50     *
- *    Signalling channel event handlers..................line 69     *
- *    Managing local MediaStream objects.................line 152    *
- *    Remote MediaStreamTrackEvent handlers..............line 242    *
- *    Call negotiation...................................line 295    *
- *    Local call controls................................line 346    *
- *    UI changes.........................................line 450    *
- *    UI eventListeners..................................line 523    *
- *    Document eventListeners............................line 532    *
- *    RTCPeerConnection eventListeners...................line 537    *
- *    Initial socket.io interactions.....................line 543    *
+ *    Global state                                                   *
+ *    DOM Elements                                                   *
+ *    Signalling channel event handlers                              *
+ *    Managing local MediaStream objects                             *
+ *    Remote MediaStreamTrackEvent handlers                          *
+ *    Call negotiation                                               *
+ *    Local call controls                                            *
+ *    UI changes                                                     *
+ *    UI eventListeners                                              *
+ *    Document eventListeners                                        *
+ *    RTCPeerConnection eventListeners                               *
+ *    Initial socket.io interactions                                 *
  *                                                                   *
  * ================================================================= *
  */
 
-// ? Global State
+// SECTION Global state
 const servers = {
 	iceServers: [
 		{
@@ -38,7 +38,7 @@ const socket = io(socketServerURL)
 const callId = location.search
 const regExp = /^\?callId=[0-9a-f]{8}\-[0-9a-f]{4}\-4[0-9a-f]{3}\-[89ab][0-9a-f]{3}\-[0-9a-f]{12}$/
 
-// Ensures the call has an ID
+// NOTE Ensures the call has an ID
 if (!callId.match(regExp)) location.search = `callId=${uuidV4()}`
 
 /** @type {RTCDataChannel} */
@@ -46,8 +46,9 @@ let signallingChannel = null
 let remoteUserStreamID = ''
 let remoteDisplayStreamID = ''
 let isSharing = false
+// !SECTION
 
-// ? DOM Elements
+// SECTION DOM Elements
 const localUserVideo = document.querySelector('.client [data-user-stream]')
 const localDisplayVideo = document.querySelector('.client [data-display-stream]')
 const remoteUserVideo = document.querySelector('.remote [data-user-stream]')
@@ -55,8 +56,13 @@ const remoteDisplayVideo = document.querySelector('.remote [data-display-stream]
 const controls = document.querySelectorAll('.controls button')
 const [cameraBtn, muteBtn, shareBtn, hangupBtn] = controls
 const fullscreenToggles = document.querySelectorAll('[data-function="fullscreen"]')
+const { parentElement: localUserContainer } = localUserVideo
+const { parentElement: localDisplayContainer } = localDisplayVideo
+const { parentElement: remoteUserContainer } = remoteUserVideo
+const { parentElement: remoteDisplayContainer } = remoteDisplayVideo
+// !SECTION
 
-// This function is declared at the top because it's called by line 104
+// NOTE This function is declared at the top because it's called by line 104
 /**
  * When the peer connection is closed, refresh the page
  * @param {Event} e
@@ -66,8 +72,7 @@ const refreshPage = e => {
 	location.href = `https://${location.host}${location.pathname}`
 }
 
-// ? Signalling channel event handlers
-
+// SECTION Signalling channel event handlers
 /**
  * Handles the initial connection of the data channel that will handle renegotiations
  */
@@ -148,9 +153,9 @@ const renegotiate = async () => {
 	await peer.setLocalDescription(offer)
 	signallingChannel.send(JSON.stringify({ sdp: peer.localDescription }))
 }
+// !SECTION
 
-// ? Managing local MediaStream objects
-
+// SECTION Managing local MediaStream objects
 /**
  * Creates the MediaStream object that contains the local user's
  * microphone and webcam.
@@ -203,13 +208,13 @@ const updateLocalDisplayStream = async sharing => {
 	})
 
 	// Hides the screen share preview when the screen is not being shared
-	localDisplayVideo.parentElement.classList.toggle('hidden', !sharing)
+	localDisplayContainer.classList.toggle('hidden', !sharing)
 
 	if (!sharing) {
 		localDisplayVideo.srcObject = null
 
 		// Exit fullscreen if necessary
-		if (!localDisplayVideo.parentElement.classList.contains('fullscreen')) return
+		if (!localDisplayContainer.classList.contains('fullscreen')) return
 		return await document.exitFullscreen()
 	}
 
@@ -238,9 +243,9 @@ const updateLocalDisplayStream = async sharing => {
 		peer.addTrack(track, localDisplayStream)
 	})
 }
+// !SECTION
 
-// ? Remote MediaStreamTrackEvent handlers
-
+// SECTION Remote MediaStreamTrackEvent handlers
 /**
  * Makes changes to the UI when the remote peer disbales one of their video tracks
  * @param {'user'|'display'} streamName
@@ -279,7 +284,7 @@ const handleRemoteTrack = e => {
 		stream.addEventListener('removetrack', () => removeRemoteTrack('display', 'video'))
 
 		remoteDisplayVideo.srcObject = stream
-		remoteDisplayVideo.parentElement.classList.remove('hidden')
+		remoteDisplayContainer.parentElement.classList.remove('hidden')
 		return
 	}
 
@@ -289,11 +294,13 @@ const handleRemoteTrack = e => {
 	remoteUserVideo.srcObject = stream
 
 	if (stream.getVideoTracks().length === 0) return
-	remoteUserVideo.parentElement.classList.remove('hidden')
+	const otherVideoFullscreen = localUserContainer.classList.contains('fullscreen')
+	remoteUserContainer.classList.toggle('corner', otherVideoFullscreen)
+	remoteUserContainer.classList.remove('hidden')
 }
+// !SECTION
 
-// ? Call negotiation
-
+// SECTION Call negotiation
 /**
  * Creates a call
  */
@@ -342,9 +349,9 @@ const answerCall = async () => {
 		await peer.setLocalDescription(answerDescription)
 	})
 }
+// !SECTION
 
-// Local call controls
-
+// SECTION Local call controls
 /**
  * Toggles the local user's webcam or microphone when the respective
  * button is pressed on the UI
@@ -381,11 +388,11 @@ const toggleCameraOrMic = async (e, device) => {
 		localUserStream.removeTrack(track)
 
 		// Hides the webcam feed and returns
-		localUserVideo.parentElement.classList.add('hidden')
-		localUserVideo.parentElement.classList.remove('cover')
+		localUserContainer.classList.add('hidden')
+		localUserContainer.classList.remove('cover')
 
 		// Exit fullscreen if necessary
-		if (!localUserVideo.parentElement.classList.contains('fullscreen')) return
+		if (!localUserContainer.classList.contains('fullscreen')) return
 		await document.exitFullscreen()
 
 		return
@@ -396,7 +403,9 @@ const toggleCameraOrMic = async (e, device) => {
 	const [videoTrack] = stream.getVideoTracks()
 	const { aspectRatio } = videoTrack.getSettings()
 
-	localUserVideo.parentElement.classList.toggle('cover', aspectRatio >= 1.25)
+	const otherVideoFullscreen = remoteUserContainer.classList.contains('fullscreen')
+	localUserContainer.classList.toggle('corner', otherVideoFullscreen)
+	localUserContainer.classList.toggle('cover', aspectRatio >= 1.25)
 	videoTrack.source = 'User video'
 
 	// Adds the new track to the local MediaStream and to the peer connection
@@ -446,8 +455,59 @@ const hangup = () => {
 	peer.close()
 	refreshPage()
 }
+// !SECTION
 
-// ? UI changes
+// SECTION UI changes
+// TODO Allows the user to drag the corner video feed around
+/**
+ * @param {MouseEvent} e
+ */
+const dragStartHandler = e => {
+	/** @type {HTMLDivElement} */
+	const target = e.target.tagName === 'VIDEO' ? e.target.parentElement : e.target
+
+	if (!target.classList.contains('corner')) return console.log(target.classList)
+	let { clientX: initialX, clientY: initialY } = e
+
+	/**
+	 * @param {DragEvent} event
+	 */
+	const dragCornerVideo = event => {
+		const { clientX, clientY } = event
+
+		const left = target.offsetLeft - (initialX - clientX)
+		const top = target.offsetTop - (initialY - clientY)
+
+		initialX = event.clientX
+		initialY = event.clientY
+
+		target.style = `--top: ${top}px; --left: ${left}px;`
+	}
+
+	/**
+	 * Removes the eventListeners from the document
+	 */
+	const dropCornerVideo = () => {
+		const { innerWidth, innerHeight } = window
+		const { offsetLeft, offsetTop } = target
+		const { width, height } = target.getBoundingClientRect()
+
+		const isTop = offsetTop < innerHeight - (height + offsetTop)
+		const isLeft = offsetLeft < innerWidth - (width + offsetLeft)
+
+		const left = isLeft ? '2rem' : `calc(75vw - 2rem)`
+		const top = isTop ? '2rem' : `calc(100vh - ${height}px - 5rem)`
+
+		target.style = `--top: ${top}; --left: ${left};`
+
+		document.removeEventListener('mousemove', dragCornerVideo)
+		document.removeEventListener('mouseup', dropCornerVideo)
+	}
+
+	// Adding event listeners to the document
+	document.addEventListener('mousemove', dragCornerVideo)
+	document.addEventListener('mouseup', dropCornerVideo)
+}
 
 /**
  * Decides wether the video's object-fit should be contain or cover
@@ -462,7 +522,9 @@ const setObjectFit = e => {
 
 	const { aspectRatio } = track?.getSettings?.() ?? { aspectRatio: 0 }
 
-	element.parentElement.classList.toggle('cover', aspectRatio >= 1.25)
+	const cover = element.parentElement.classList.toggle('cover', aspectRatio >= 1.25)
+	if (cover) return
+	element.parentElement.style === `--aspect-ratio: ${aspectRatio}`
 }
 
 /**
@@ -484,14 +546,15 @@ const exitFullscreen = () => {
  */
 const toggleFullscreen = async e => {
 	/** @type {HTMLElement} */
-	const video = e.target.closest('.video-container').querySelector('video')
+	const container = e.target.closest('.video-container')
+	const video = container.querySelector('video')
 	const active = e.target.classList.toggle('active')
-	video.parentElement.classList.toggle('fullscreen')
+	container.classList.toggle('fullscreen')
 
 	if (!active) {
 		document.querySelectorAll('video').forEach(e => {
 			if (e.srcObject?.getVideoTracks()?.length === 0 || !e.srcObject) return
-			e.parentElement.classList.remove('hidden')
+			e.parentElement.classList.remove('hidden', 'corner')
 		})
 
 		return await document.exitFullscreen()
@@ -506,9 +569,7 @@ const toggleFullscreen = async e => {
 
 	if (!video.hasAttribute('data-user-stream')) return
 
-	const cornerVideo = video.parentElement.classList.contains('client')
-		? remoteUserVideo
-		: localUserVideo
+	const cornerVideo = container.classList.contains('client') ? remoteUserVideo : localUserVideo
 
 	/** @type {MediaStream} */
 	const cornerStream = cornerVideo.srcObject
@@ -519,32 +580,36 @@ const toggleFullscreen = async e => {
 	cornerVideo.parentElement.classList.add('corner')
 	cornerVideo.parentElement.classList.remove('hidden')
 }
+// !SECTION
 
-// ? UI eventListeners
-
+// SECTION UI eventListeners
 shareBtn.addEventListener('click', toggleSharing)
 cameraBtn.addEventListener('click', e => toggleCameraOrMic(e, 'video'))
 muteBtn.addEventListener('click', e => toggleCameraOrMic(e, 'audio'))
 hangupBtn.addEventListener('click', hangup)
 fullscreenToggles.forEach(el => el.addEventListener('click', toggleFullscreen))
 remoteUserVideo.addEventListener('loadedmetadata', setObjectFit)
+localUserContainer.addEventListener('mousedown', dragStartHandler)
+remoteUserContainer.addEventListener('mousedown', dragStartHandler)
+// !SECTION
 
-// ? Document eventListeners
-
+// SECTION Document eventListeners
 document.addEventListener('fullscreenchange', exitFullscreen)
 document.addEventListener('beforeunload', hangup)
+document.addEventListener('resize', console.log)
+// !SECTION
 
-// ? RTCPeerConnection eventListeners
-
+// SECTION RTCPeerConnection eventListeners
 peer.addEventListener('negotiationneeded', renegotiate)
 peer.addEventListener('track', handleRemoteTrack)
 peer.addEventListener('connectionstatechange', refreshPage)
+// !SECTION
 
-// ? Initial socket.io interactions
-
+// SECTION Initial socket.io interactions
 socket.on('connect', () => {
 	socket.emit('check-for-call', callId)
 	socket.on('check-result', result => (result ? answerCall() : createCall()))
 })
 
 socket.on('receive-candidate', candidate => peer.addIceCandidate(candidate))
+// !SECTION
