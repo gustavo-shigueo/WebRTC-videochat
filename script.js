@@ -185,6 +185,50 @@ const createLocalUserStream = async () => {
 	})
 }
 
+const toggleLocalUserAudio = active => {
+	const [track] = localUserStream.getAudioTracks()
+	track.enabled = active
+}
+
+const toggleLocalUserVideo = async active => {
+	if (active) {
+		// Creates a new video track from the webcam
+		const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+		const [videoTrack] = stream.getVideoTracks()
+		const { aspectRatio } = videoTrack.getSettings()
+
+		const otherVideoFullscreen = remoteUserContainer.classList.contains('fullscreen')
+		localUserContainer.classList.toggle('corner', otherVideoFullscreen)
+		localUserContainer.classList.toggle('cover', aspectRatio >= 1.25)
+		videoTrack.source = 'User video'
+
+		// Adds the new track to the local MediaStream and to the peer connection
+		localUserStream.addTrack(videoTrack)
+		peer.addTrack(videoTrack, localUserStream)
+
+		// Displays the webcam feed
+		localUserVideo.parentElement.classList.remove('hidden')
+		return
+	}
+
+	const [track] = localUserStream.getVideoTracks()
+
+	// Remove the track from both the local MediaStream and the peer connection
+	track.stop()
+	const [sender] = peer.getSenders().filter(sender => sender?.track?.id === track?.id)
+	peer.removeTrack(sender)
+
+	localUserStream.removeTrack(track)
+
+	// Hides the webcam feed and returns
+	localUserContainer.classList.add('hidden')
+	localUserContainer.classList.remove('cover')
+
+	// Exit fullscreen if necessary
+	if (!localUserContainer.classList.contains('fullscreen')) return
+	await document.exitFullscreen()
+}
+
 /**
  * Updates the MediaStream object that contains the local user's
  * screen share
@@ -252,20 +296,14 @@ const updateLocalDisplayStream = async sharing => {
  * @param {'video'|'audio'} kind
  */
 const removeRemoteTrack = async (streamName, kind) => {
-	/**
-	 * Get references to the DOM Elements that will change
-	 */
+	// Get references to the DOM Elements that will change
 	const video = streamName === 'user' ? remoteUserVideo : remoteDisplayVideo
 	const container = video.parentElement
 
-	/**
-	 * Only change if handling a video track
-	 */
+	// Only change UI if handling a video track
 	if (kind !== 'video') return
 
-	/**
-	 * Hide the video feed and if needed, exit fullscree
-	 */
+	// Hide the video feed and if needed, exit fullscreen
 	container.classList.add('hidden')
 
 	if (!container.classList.contains('fullscreen')) return
@@ -281,15 +319,15 @@ const handleRemoteTrack = e => {
 
 	// The stream being handled is the screen share stream
 	if (stream.id === remoteDisplayStreamID) {
-		stream.addEventListener('removetrack', () => removeRemoteTrack('display', 'video'))
+		stream.addEventListener('removetrack', event => removeRemoteTrack('display', event.track.kind))
 
 		remoteDisplayVideo.srcObject = stream
-		remoteDisplayContainer.parentElement.classList.remove('hidden')
+		remoteDisplayContainer.classList.remove('hidden')
 		return
 	}
 
 	// The stream being handled is the user stream
-	stream.addEventListener('removetrack', e => removeRemoteTrack('user', e.track.kind))
+	stream.addEventListener('removetrack', event => removeRemoteTrack('user', event.track.kind))
 
 	remoteUserVideo.srcObject = stream
 
@@ -358,7 +396,7 @@ const answerCall = async () => {
  * @param {MouseEvent} e The click event
  * @param {string} device Which media source the use wants to toggle
  */
-const toggleCameraOrMic = async (e, device) => {
+const toggleCameraOrMic = (e, device) => {
 	// Handles the UI changes that happen when the camera or mute buttons are clicked
 	const active = e.target.classList.toggle('active')
 	const tooltips = {
@@ -366,54 +404,16 @@ const toggleCameraOrMic = async (e, device) => {
 		video: ['Disable camera', 'Enable camera'],
 	}
 
+	e.target.setAttribute('disabled', 'true')
 	e.target.setAttribute('aria-label', tooltips[device][active ? 0 : 1])
 
-	// Gets the track that will be toggled
-	const [track] =
-		device === 'audio' ? localUserStream.getAudioTracks() : localUserStream.getVideoTracks()
-
-	// If the track exists
-	if (track) {
-		// Toggle the track
-		track.enabled = !track.enabled
-
-		// If it's an audio track, return
-		if (device === 'audio') return
-
-		// Remove the track from both the local MediaStream and the peer connection
-		track.stop()
-		const [sender] = peer.getSenders().filter(sender => sender?.track?.id === track?.id)
-		peer.removeTrack(sender)
-
-		localUserStream.removeTrack(track)
-
-		// Hides the webcam feed and returns
-		localUserContainer.classList.add('hidden')
-		localUserContainer.classList.remove('cover')
-
-		// Exit fullscreen if necessary
-		if (!localUserContainer.classList.contains('fullscreen')) return
-		await document.exitFullscreen()
-
+	if (device === 'audio') {
+		toggleLocalUserAudio(!active)
+		e.target.removeAttribute('disabled')
 		return
 	}
 
-	// Creates a new video track from the webcam
-	const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-	const [videoTrack] = stream.getVideoTracks()
-	const { aspectRatio } = videoTrack.getSettings()
-
-	const otherVideoFullscreen = remoteUserContainer.classList.contains('fullscreen')
-	localUserContainer.classList.toggle('corner', otherVideoFullscreen)
-	localUserContainer.classList.toggle('cover', aspectRatio >= 1.25)
-	videoTrack.source = 'User video'
-
-	// Adds the new track to the local MediaStream and to the peer connection
-	localUserStream.addTrack(videoTrack)
-	peer.addTrack(videoTrack, localUserStream)
-
-	// Displays the webcam feed
-	localUserVideo.parentElement.classList.remove('hidden')
+	toggleLocalUserVideo(active).then(() => e.target.removeAttribute('disabled'))
 }
 
 /**
@@ -466,7 +466,7 @@ const dragStartHandler = e => {
 	/** @type {HTMLDivElement} */
 	const target = e.target.tagName === 'VIDEO' ? e.target.parentElement : e.target
 
-	if (!target.classList.contains('corner')) return console.log(target.classList)
+	if (!target.classList.contains('corner')) return
 	let { clientX: initialX, clientY: initialY } = e
 
 	/**
@@ -499,6 +499,7 @@ const dragStartHandler = e => {
 		const top = isTop ? '2rem' : `calc(100vh - ${height}px - 5rem)`
 
 		target.style = `--top: ${top}; --left: ${left};`
+		target.classList.add('drag-transition')
 
 		document.removeEventListener('mousemove', dragCornerVideo)
 		document.removeEventListener('mouseup', dropCornerVideo)
@@ -508,6 +509,12 @@ const dragStartHandler = e => {
 	document.addEventListener('mousemove', dragCornerVideo)
 	document.addEventListener('mouseup', dropCornerVideo)
 }
+
+/**
+ * Removes the transition style from the corner video
+ * @param {TransitionEvent} e
+ */
+const removeTransition = e => e.target.classList.remove('drag-transition')
 
 /**
  * Decides wether the video's object-fit should be contain or cover
@@ -528,10 +535,30 @@ const setObjectFit = e => {
 }
 
 /**
+ * Shows the call controls when you mmove the mouse or click in fullscreen mode
+ */
+const showControlsFullscreen = () => {
+	const e = document.querySelector('.controls')
+	e.classList.remove('hide-controls')
+	setTimeout(() => !!document.fullscreenElement && e.classList.add('hide-controls'), 500)
+}
+
+/**
  * Makes UI changes when exiting fullscreen mode
  */
-const exitFullscreen = () => {
-	if (document.fullscreenElement) return
+const fullscreenChangeHandler = () => {
+	const isFullscreen = !!document.fullscreenElement
+	const controlsContainer = document.querySelector('.controls')
+	controlsContainer.classList.toggle('hide-controls', isFullscreen)
+
+	if (isFullscreen) {
+		document.addEventListener('mousemove', showControlsFullscreen)
+		document.addEventListener('click', showControlsFullscreen)
+		return
+	}
+	
+	document.removeEventListener('mousemove', showControlsFullscreen)
+	document.removeEventListener('click', showControlsFullscreen)
 
 	document.querySelectorAll('video').forEach(e => {
 		e.parentElement.classList.remove('corner', 'fullscreen')
@@ -546,7 +573,12 @@ const exitFullscreen = () => {
  */
 const toggleFullscreen = async e => {
 	/** @type {HTMLElement} */
-	const container = e.target.closest('.video-container')
+	const targetIsContainer = e.target.classList.contains('.video-container')
+
+	const container = targetIsContainer ? e.target : e.target.closest('.video-container')
+
+	if (container.classList.contains('corner')) return
+
 	const video = container.querySelector('video')
 	const active = e.target.classList.toggle('active')
 	container.classList.toggle('fullscreen')
@@ -591,10 +623,14 @@ fullscreenToggles.forEach(el => el.addEventListener('click', toggleFullscreen))
 remoteUserVideo.addEventListener('loadedmetadata', setObjectFit)
 localUserContainer.addEventListener('mousedown', dragStartHandler)
 remoteUserContainer.addEventListener('mousedown', dragStartHandler)
+localUserContainer.addEventListener('transitionend', removeTransition)
+remoteUserContainer.addEventListener('transitionend', removeTransition)
+localUserContainer.addEventListener('dblclick', toggleFullscreen)
+remoteUserContainer.addEventListener('dblclick', toggleFullscreen)
 // !SECTION
 
 // SECTION Document eventListeners
-document.addEventListener('fullscreenchange', exitFullscreen)
+document.addEventListener('fullscreenchange', fullscreenChangeHandler)
 document.addEventListener('beforeunload', hangup)
 document.addEventListener('resize', console.log)
 // !SECTION
