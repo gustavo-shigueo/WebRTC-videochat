@@ -574,19 +574,21 @@ const fullscreenChangeHandler = () => {
 const toggleFullscreen = async e => {
 	/** @type {HTMLElement} */
 	const targetIsContainer = e.target.classList.contains('.video-container')
-
+	
+	/** @type {HTMLElement} */
 	const container = targetIsContainer ? e.target : e.target.closest('.video-container')
+	const btnToggle = container.querySelector('button')
 
 	if (container.classList.contains('corner')) return
 
 	const video = container.querySelector('video')
-	const active = e.target.classList.toggle('active')
+	const active = btnToggle.classList.toggle('active')
 	container.classList.toggle('fullscreen')
 
 	if (!active) {
-		document.querySelectorAll('video').forEach(e => {
-			if (e.srcObject?.getVideoTracks()?.length === 0 || !e.srcObject) return
-			e.parentElement.classList.remove('hidden', 'corner')
+		document.querySelectorAll('video').forEach(videoElement => {
+			if (videoElement.srcObject?.getVideoTracks()?.length === 0 || !videoElement.srcObject) return
+			videoElement.parentElement.classList.remove('hidden', 'corner')
 		})
 
 		return await document.exitFullscreen()
