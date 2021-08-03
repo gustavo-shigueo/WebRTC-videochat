@@ -398,19 +398,22 @@ const answerCall = async () => {
  * @param {string} device Which media source the use wants to toggle
  */
 const toggleCameraOrMic = (e, device) => {
+	/** @type {HTMLButtonElement} */
+	const element = device === 'audio' ? muteBtn : cameraBtn
+
 	// Handles the UI changes that happen when the camera or mute buttons are clicked
-	const active = e.target.classList.toggle('active')
+	const active = element.classList.toggle('active')
 	const tooltips = {
 		audio: ['Unmute', 'Mute'],
 		video: ['Disable camera', 'Enable camera'],
 	}
 
-	e.target.setAttribute('disabled', 'true')
-	e.target.setAttribute('aria-label', tooltips[device][active ? 0 : 1])
+	element.setAttribute('disabled', 'true')
+	element.setAttribute('aria-label', tooltips[device][active ? 0 : 1])
 
 	if (device === 'audio') {
 		toggleLocalUserAudio(!active)
-		e.target.removeAttribute('disabled')
+		element.removeAttribute('disabled')
 		return
 	}
 
@@ -675,7 +678,6 @@ remoteDisplayContainer.addEventListener('touchstart', testDoubleTap)
 // SECTION Document eventListeners
 document.addEventListener('fullscreenchange', fullscreenChangeHandler)
 document.addEventListener('beforeunload', hangup)
-document.addEventListener('resize', console.log)
 // !SECTION
 
 // SECTION RTCPeerConnection eventListeners
