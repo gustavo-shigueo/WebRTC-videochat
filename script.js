@@ -191,27 +191,27 @@ const toggleLocalUserAudio = active => {
 	track.enabled = active
 }
 
-const toggleLocalUserVideo = async active => {
-	if (active) {
-		// Creates a new video track from the webcam
-		const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-		const [videoTrack] = stream.getVideoTracks()
-		const { aspectRatio } = videoTrack.getSettings()
+const turnLocalCameraOn = async () => {
+	// Creates a new video track from the webcam
+	const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+	const [videoTrack] = stream.getVideoTracks()
+	const { aspectRatio } = videoTrack.getSettings()
 
-		const otherVideoFullscreen = remoteUserContainer.classList.contains('fullscreen')
-		localUserContainer.classList.toggle('corner', otherVideoFullscreen)
-		localUserContainer.classList.toggle('cover', aspectRatio >= 1.25)
-		videoTrack.source = 'User video'
+	const otherVideoFullscreen = remoteUserContainer.classList.contains('fullscreen')
+	localUserContainer.classList.toggle('corner', otherVideoFullscreen)
+	localUserContainer.classList.toggle('cover', aspectRatio >= 1.25)
+	videoTrack.source = 'User video'
 
-		// Adds the new track to the local MediaStream and to the peer connection
-		localUserStream.addTrack(videoTrack)
-		peer.addTrack(videoTrack, localUserStream)
+	// Adds the new track to the local MediaStream and to the peer connection
+	localUserStream.addTrack(videoTrack)
+	peer.addTrack(videoTrack, localUserStream)
 
-		// Displays the webcam feed
-		localUserVideo.parentElement.classList.remove('hidden')
-		return
-	}
+	// Displays the webcam feed
+	localUserVideo.parentElement.classList.remove('hidden')
+	return
+}
 
+const turnLocalCameraOff = async () => {
 	const [track] = localUserStream.getVideoTracks()
 
 	// Remove the track from both the local MediaStream and the peer connection
@@ -229,6 +229,8 @@ const toggleLocalUserVideo = async active => {
 	if (!localUserContainer.classList.contains('fullscreen')) return
 	await document.exitFullscreen()
 }
+
+const toggleLocalUserVideo = active => (active ? turnLocalCameraOn() : turnLocalCameraOff())
 
 /**
  * Updates the MediaStream object that contains the local user's
@@ -394,15 +396,18 @@ const answerCall = async () => {
 /**
  * Toggles the local user's webcam or microphone when the respective
  * button is pressed on the UI
- * @param {MouseEvent} e The click event
- * @param {string} device Which media source the use wants to toggle
+ * @param {'audio'|'video'} device Which media source the use wants to toggle
  */
-const toggleCameraOrMic = (e, device) => {
+const toggleCameraOrMic = async device => {
+	const isAudio = device === 'audio'
+
 	/** @type {HTMLButtonElement} */
-	const element = device === 'audio' ? muteBtn : cameraBtn
+	const element = isAudio ? muteBtn : cameraBtn
 
 	// Handles the UI changes that happen when the camera or mute buttons are clicked
-	const active = element.classList.toggle('active')
+	// The value of active is inverted when toggling audio because the microphone is enabled by default
+	// The ^ operator is a bitwise xor which inverts the second value only if the first is truthy
+	const active = deviceIsAudio ^ element.classList.toggle('active')
 	const tooltips = {
 		audio: ['Unmute', 'Mute'],
 		video: ['Disable camera', 'Enable camera'],
@@ -411,13 +416,8 @@ const toggleCameraOrMic = (e, device) => {
 	element.setAttribute('disabled', 'true')
 	element.setAttribute('aria-label', tooltips[device][active ? 0 : 1])
 
-	if (device === 'audio') {
-		toggleLocalUserAudio(!active)
-		element.removeAttribute('disabled')
-		return
-	}
-
-	toggleLocalUserVideo(active).then(() => e.target.removeAttribute('disabled'))
+	deviceIsAudio ? toggleLocalUserAudio(active) : await toggleLocalUserVideo(active)
+	element.removeAttribute('disabled')
 }
 
 /**
@@ -564,7 +564,7 @@ const fullscreenChangeHandler = () => {
 		document.addEventListener('click', showControlsFullscreen)
 		return
 	}
-	
+
 	document.removeEventListener('mousemove', showControlsFullscreen)
 	document.removeEventListener('click', showControlsFullscreen)
 
@@ -582,7 +582,7 @@ const fullscreenChangeHandler = () => {
 const toggleFullscreen = async e => {
 	/** @type {HTMLElement} */
 	const targetIsContainer = e.target.classList.contains('.video-container')
-	
+
 	/** @type {HTMLElement} */
 	const container = targetIsContainer ? e.target : e.target.closest('.video-container')
 	const btnToggle = container.querySelector('button')
@@ -625,7 +625,7 @@ const toggleFullscreen = async e => {
 
 /**
  * If the user double taps a video feed toggle its fullscreen mode
- * @param {TouchEvent} e 
+ * @param {TouchEvent} e
  */
 const testDoubleTap = e => {
 	/** @type {HTMLElement} */
@@ -648,8 +648,8 @@ const testDoubleTap = e => {
 
 // SECTION UI eventListeners
 shareBtn.addEventListener('click', toggleSharing)
-cameraBtn.addEventListener('click', e => toggleCameraOrMic(e, 'video'))
-muteBtn.addEventListener('click', e => toggleCameraOrMic(e, 'audio'))
+cameraBtn.addEventListener('click', () => toggleCameraOrMic('video'))
+muteBtn.addEventListener('click', () => toggleCameraOrMic('audio'))
 hangupBtn.addEventListener('click', hangup)
 
 fullscreenToggles.forEach(el => el.addEventListener('click', toggleFullscreen))
