@@ -46,6 +46,7 @@ let signallingChannel = null
 let remoteUserStreamID = ''
 let remoteDisplayStreamID = ''
 let isSharing = false
+let lastTap = 0
 // !SECTION
 
 // SECTION DOM Elements
@@ -460,34 +461,35 @@ const hangup = () => {
 // SECTION UI changes
 // TODO Allows the user to drag the corner video feed around
 /**
- * @param {MouseEvent} e
+ * @param {MouseEvent|TouchEvent} e
  */
 const dragStartHandler = e => {
 	/** @type {HTMLDivElement} */
 	const target = e.target.tagName === 'VIDEO' ? e.target.parentElement : e.target
 
 	if (!target.classList.contains('corner')) return
-	let { clientX: initialX, clientY: initialY } = e
+	let { clientX: initialX, clientY: initialY } = e.type === 'mousedown' ? e : e.touches[0]
 
 	/**
-	 * @param {DragEvent} event
+	 * @param {MouseEvent|TouchEvent} event
 	 */
 	const dragCornerVideo = event => {
-		const { clientX, clientY } = event
+		const { clientX, clientY } = event.type === 'mousemove' ? event : event.changedTouches[0]
 
 		const left = target.offsetLeft - (initialX - clientX)
 		const top = target.offsetTop - (initialY - clientY)
 
-		initialX = event.clientX
-		initialY = event.clientY
+		initialX = clientX
+		initialY = clientY
 
 		target.style = `--top: ${top}px; --left: ${left}px;`
 	}
 
 	/**
 	 * Removes the eventListeners from the document
+	 * @param {Event} event
 	 */
-	const dropCornerVideo = () => {
+	const dropCornerVideo = event => {
 		const { innerWidth, innerHeight } = window
 		const { offsetLeft, offsetTop } = target
 		const { width, height } = target.getBoundingClientRect()
@@ -501,13 +503,16 @@ const dragStartHandler = e => {
 		target.style = `--top: ${top}; --left: ${left};`
 		target.classList.add('drag-transition')
 
-		document.removeEventListener('mousemove', dragCornerVideo)
-		document.removeEventListener('mouseup', dropCornerVideo)
+		document.removeEventListener(
+			event.type === 'mouseup' ? 'mousemove' : 'touchmove',
+			dragCornerVideo
+		)
+		document.removeEventListener(event.type === 'mouseup' ? 'mouseup' : 'touchend', dropCornerVideo)
 	}
 
 	// Adding event listeners to the document
-	document.addEventListener('mousemove', dragCornerVideo)
-	document.addEventListener('mouseup', dropCornerVideo)
+	document.addEventListener(e.type === 'mousedown' ? 'mousemove' : 'touchmove', dragCornerVideo)
+	document.addEventListener(e.type === 'mousedown' ? 'mouseup' : 'touchend', dropCornerVideo)
 }
 
 /**
@@ -614,6 +619,28 @@ const toggleFullscreen = async e => {
 	cornerVideo.parentElement.classList.add('corner')
 	cornerVideo.parentElement.classList.remove('hidden')
 }
+
+/**
+ * If the user double taps a video feed toggle its fullscreen mode
+ * @param {TouchEvent} e 
+ */
+const testDoubleTap = e => {
+	/** @type {HTMLElement} */
+	const targetIsContainer = e.target.classList.contains('.video-container')
+
+	/** @type {HTMLElement} */
+	const container = targetIsContainer ? e.target : e.target.closest('.video-container')
+
+	if (container.classList.contains('corner')) return
+
+	const tapTime = new Date().getTime()
+	const timeBetweenTaps = tapTime - lastTap
+	lastTap = tapTime
+
+	if (timeBetweenTaps > 500 || timeBetweenTaps <= 0) return
+
+	toggleFullscreen({ target: container })
+}
 // !SECTION
 
 // SECTION UI eventListeners
@@ -621,14 +648,28 @@ shareBtn.addEventListener('click', toggleSharing)
 cameraBtn.addEventListener('click', e => toggleCameraOrMic(e, 'video'))
 muteBtn.addEventListener('click', e => toggleCameraOrMic(e, 'audio'))
 hangupBtn.addEventListener('click', hangup)
+
 fullscreenToggles.forEach(el => el.addEventListener('click', toggleFullscreen))
 remoteUserVideo.addEventListener('loadedmetadata', setObjectFit)
+
 localUserContainer.addEventListener('mousedown', dragStartHandler)
 remoteUserContainer.addEventListener('mousedown', dragStartHandler)
+
+localUserContainer.addEventListener('touchstart', dragStartHandler)
+remoteUserContainer.addEventListener('touchstart', dragStartHandler)
+
 localUserContainer.addEventListener('transitionend', removeTransition)
 remoteUserContainer.addEventListener('transitionend', removeTransition)
+
 localUserContainer.addEventListener('dblclick', toggleFullscreen)
+localDisplayContainer.addEventListener('dblclick', toggleFullscreen)
 remoteUserContainer.addEventListener('dblclick', toggleFullscreen)
+remoteDisplayContainer.addEventListener('dblclick', toggleFullscreen)
+
+localUserContainer.addEventListener('touchstart', testDoubleTap)
+localDisplayContainer.addEventListener('touchstart', testDoubleTap)
+remoteUserContainer.addEventListener('touchstart', testDoubleTap)
+remoteDisplayContainer.addEventListener('touchstart', testDoubleTap)
 // !SECTION
 
 // SECTION Document eventListeners
