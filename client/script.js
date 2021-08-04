@@ -407,16 +407,16 @@ const toggleCameraOrMic = async device => {
 	// Handles the UI changes that happen when the camera or mute buttons are clicked
 	// The value of active is inverted when toggling audio because the microphone is enabled by default
 	// The ^ operator is a bitwise xor which inverts the second value only if the first is truthy
-	const active = deviceIsAudio ^ element.classList.toggle('active')
+	const active = isAudio ^ element.classList.toggle('active')
 	const tooltips = {
 		audio: ['Unmute', 'Mute'],
-		video: ['Disable camera', 'Enable camera'],
+		video: ['Enable camera', 'Disable camera'],
 	}
 
 	element.setAttribute('disabled', 'true')
-	element.setAttribute('aria-label', tooltips[device][active ? 0 : 1])
+	element.setAttribute('aria-label', tooltips[device][active])
 
-	deviceIsAudio ? toggleLocalUserAudio(active) : await toggleLocalUserVideo(active)
+	isAudio ? toggleLocalUserAudio(active) : await toggleLocalUserVideo(active)
 	element.removeAttribute('disabled')
 }
 

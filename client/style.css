@@ -185,6 +185,7 @@ button:disabled {
 
 svg {
 	fill: currentColor;
+	pointer-events: none;
 }
 
 video {
