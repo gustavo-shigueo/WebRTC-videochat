@@ -21,3 +21,8 @@ only through the peer connection and its data channel, which handles the end of 
 
 Simply go to https://gustavo-shigueo.github.io/WebRTC-videochat and, when your call is created send the URL in your browser, which contains the call ID
 to whoever you want to talk to. Once they open it, a peer connection will be estabilished and youur call will begin.
+
+
+## Notice
+
+The app is currently down due to the backend being hosted on Heroku's free-tier, which has been removed sometime last year.
