@@ -25,4 +25,5 @@ to whoever you want to talk to. Once they open it, a peer connection will be est
 
 ## Notice
 
-The app is currently down due to the backend being hosted on Heroku's free-tier, which has been removed sometime last year.
+Due to Heroku's free-tier having been removed, the backend is now hosted at https://render.com, whixh means it will be shut down whenever it is inactive,
+so it may take up to a minute for the app to work upon first loading it
