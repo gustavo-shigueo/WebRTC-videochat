@@ -1,12 +1,11 @@
+const corsOrigin = process?.env?.GITPOD_WORKSPACE_URL?.replace('//', '//5500-') ?? 'https://gustavo-shigueo.github.io'
+
 const httpServer = require('http').createServer((req, res) => {
-	res.writeHead(200, { 'Access-Control-Allow-Origin': '*' })
+	res.writeHead(200, { 'Access-Control-Allow-Origin': corsOrigin })
 })
 const io = require('socket.io')(httpServer, {
 	cors: {
-		origin: `${
-			process?.env?.GITPOD_WORKSPACE_URL?.replace('//', '//5500-') ??
-			'https://gustavo-shigueo.github.io'
-		}`,
+		origin: corsOrigin,
 		methods: ['GET', 'POST'],
 	},
 })
