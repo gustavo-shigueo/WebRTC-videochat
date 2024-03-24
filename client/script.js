@@ -29,7 +29,7 @@ const servers = {
 }
 const peer = new RTCPeerConnection(servers)
 const socketServerURL = location.host.match(/gustavo-shigueo\.github\.io/)
-	? 'wss://webrtc-videochat-socket-server.netlify.app/'
+	? 'wss://webrtc-videochat-socket-server.onrender.com/'
 	: `wss://${location.host.replace('5500', '3001')}`
 
 const localUserStream = new MediaStream()
